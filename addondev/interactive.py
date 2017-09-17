@@ -5,12 +5,15 @@ import sys
 import re
 import os
 
-# Package imports
-from addondev.utils import urlparse, input_raw, ensure_native_str, PY3
-from addondev import support
+try:
+    import urllib.parse as urlparse
+except ImportError:
+    # noinspection PyUnresolvedReferences
+    import urlparse
 
-if PY3:
-    multiprocessing.set_start_method("spawn")
+# Package imports
+from addondev.utils import input_raw, ensure_native_str
+from addondev import support
 
 
 def interactive(pluginpath, preselect=None):
