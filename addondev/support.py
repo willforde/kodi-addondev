@@ -216,10 +216,6 @@ class Addon(object):
             if library_path not in sys.path:
                 sys.path.insert(0, library_path)
 
-        # Call settings and string to preload in the data
-        self.settings
-        self.strings
-
     @CacheProperty
     def strings(self):
         """The add-on strings.po language file."""
