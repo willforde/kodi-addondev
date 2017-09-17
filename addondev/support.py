@@ -4,8 +4,8 @@ from __future__ import print_function
 # Standard Library Imports
 from xml.etree import ElementTree as ETree
 from collections import Mapping, OrderedDict
+from codecs import open as _open
 from xml.dom import minidom
-from codecs import open
 import logging
 import zipfile
 import shutil
@@ -194,6 +194,7 @@ class Addon(object):
 
     def __init__(self, xml_node):
         self._xml = xml_node
+        self.stars = u"-1"
 
         # Extract required data from addon.xml
         self.id = xml_node.attrib["id"]
@@ -315,7 +316,7 @@ class Addon(object):
         else:
             changelog_file = safe_path(os.path.join(self.path, u"changelog-{}.txt".format(self.version)))
             if os.path.exists(changelog_file):
-                with open(changelog_file, "r", "utf8") as stream:
+                with _open(changelog_file, "r", "utf8") as stream:
                     return stream.read()
 
     @CacheProperty
@@ -327,11 +328,6 @@ class Addon(object):
             return exts[0].get("point")
         else:
             return ""
-
-    @CacheProperty
-    def stars(self):
-        """Return the star rating for this addon."""
-        return "-1"
 
     @classmethod
     def from_file(cls, xml_path):
@@ -381,7 +377,7 @@ class Repo(object):
             return update
         else:
             # Create missing check file and force update
-            open(self.update_file, "w").close()
+            _open(self.update_file, "w").close()
             return True
 
     def populate(self):
@@ -459,7 +455,7 @@ class Repo(object):
         resp = self._session.get(url)
 
         # Read and save contents of zipfile to package directory
-        with open(tmp, "wb") as stream:
+        with _open(tmp, "wb") as stream:
             for chunk in resp.iter_content(decode_unicode=False):
                 stream.write(chunk)
 
@@ -512,7 +508,7 @@ class Strings(Mapping):
 
     def _extractor(self, strings_path):
         """Extract the strings from the strings.po file"""
-        with open(strings_path, "r", "utf-8") as stream:
+        with _open(strings_path, "r", "utf-8") as stream:
             file_data = stream.read()
 
         # Populate dict of strings
@@ -575,7 +571,7 @@ class Settings(dict):
             os.makedirs(settings_dir)
 
         raw_xml = minidom.parseString(ETree.tostring(tree)).toprettyxml(indent=" "*4, encoding="utf8")
-        with open(self._settings_path, "wb") as stream:
+        with _open(self._settings_path, "wb") as stream:
             stream.write(raw_xml)
 
 

@@ -18,9 +18,9 @@ parser.add_argument("-l", "--logging", help="Show debug logging output", action=
 parser.add_argument("-p", "--preselect", help="Comma separated list of pre selections", nargs=1)
 
 
-def main(cli_args=sys.argv[1:]):
+def main():
     # Parse the cli arguments
-    args = parser.parse_args(cli_args)
+    args = parser.parse_args(sys.argv[1:])
 
     # Enable debug logging if logging flag was given
     if args.logging:
