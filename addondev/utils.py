@@ -5,12 +5,6 @@ import sys
 import re
 
 try:
-    import urllib.parse as urlparse
-except ImportError:
-    # noinspection PyUnresolvedReferences
-    import urlparse
-
-try:
     # noinspection PyUnresolvedReferences
     long_type = long
 except NameError:
@@ -104,7 +98,10 @@ def ensure_unicode(data, encoding="utf8"):
     :returns: The given string as unicode.
     :rtype: unicode
     """
-    return data.decode(encoding) if isinstance(data, bytes) else unicode_type(data)
+    if isinstance(data, bytes):
+        return data.decode(encoding)
+    else:
+        return unicode_type(data)
 
 
 # Used by xbmc.makeLegalFilename
