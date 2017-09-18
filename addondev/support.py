@@ -216,15 +216,25 @@ class Addon(object):
             if library_path not in sys.path:
                 sys.path.insert(0, library_path)
 
-    @CacheProperty
-    def strings(self):
-        """The add-on strings.po language file."""
-        return Strings(self.path)
+        # Preload strings & settings
+        self.__dict__["settings"] = self._settings()
+        self.__dict__["strings"] = self._strings()
+
+    def _settings(self):
+        return Settings(self.path, self.profile)
 
     @CacheProperty
     def settings(self):
         """The add-on settings file."""
-        return Settings(self.path, self.profile)
+        return self._settings()
+
+    def _strings(self):
+        return Strings(self.path)
+
+    @CacheProperty
+    def strings(self):
+        """The add-on strings.po language file."""
+        return self._strings()
 
     @CacheProperty
     def entry_point(self):
