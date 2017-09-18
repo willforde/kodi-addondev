@@ -39,15 +39,18 @@ def main():
 
     # Execute the addon in interactive mode
     plugin_path = os.path.realpath(decode_arg(args.pluginpath))
+    arguments = [plugin_path, preselect]
+    if args.content_type:
+        arguments.append(args.content_type[0])
 
     # Check if plugin actually exists
     if os.path.exists(safe_path(plugin_path)):
-        interactive(plugin_path, preselect)
+        interactive(*arguments)
 
     # Check if we are already in the requested plugin directory if pluginpath was a plugin id
     elif args.pluginpath.startswith("plugin.") and os.path.basename(os.getcwd()) == args.pluginpath:
         plugin_path = ensure_unicode(os.getcwd(), sys.getfilesystemencoding())
-        interactive(plugin_path, preselect)
+        interactive(*arguments)
     else:
         raise RuntimeError("unable to find requested add-on: {}".format(plugin_path.encode("utf8")))
 
