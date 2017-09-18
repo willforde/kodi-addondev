@@ -64,9 +64,6 @@ def initializer(plugin_path):
     system_dir, addon_dir = setup_paths(plugin_path)
     plugin_id = os.path.basename(plugin_path)
 
-    print(system_dir)
-    print(addon_dir)
-
     # First available addon with be the starting plugin
     avail_addons[plugin_id] = addon = Addon.from_file(os.path.join(plugin_path, u"addon.xml"))
     sys.path.insert(0, plugin_path)
@@ -178,6 +175,140 @@ class Dependency(object):
 
     def __eq__(self, other):
         return other.id == self.id
+
+
+class Repo(object):
+    """Check the official kodi repositories for available addons."""
+
+    # Kodi version code names for repository linking
+    repo = "krypton"
+
+    def __init__(self):
+        self.repo_url = "http://mirrors.kodi.tv/addons/{}/{}".format(self.repo, "{}")
+        self._package_dir = kodi_paths["packages"]
+        self._addon_dir = kodi_paths["addons"]
+        self.db = {}
+
+        # Check if an update is scheduled
+        self.update_file = safe_path(os.path.join(kodi_paths["temp"], u"update_check"))
+        if self.update_required():
+            self.update()
+
+    @CacheProperty
+    def _session(self):
+        import requests
+        return requests.session()
+
+    def update_required(self, max_age=432000):
+        """Return True if its time to update."""
+        if os.path.exists(self.update_file):
+            update = (time.time() - os.stat(self.update_file).st_mtime) > max_age
+            if update:
+                # Reset the timestamp of the check file
+                os.utime(self.update_file, None)
+            return update
+        else:
+            # Create missing check file and force update
+            _open(self.update_file, "w").close()
+            return True
+
+    def populate(self):
+        """Search for all available addons."""
+        logger.info("Communicating with kodi's official repository: Please wait.")
+        url = self.repo_url.format("addons.xml")
+        raw_xml = self._session.get(url).content
+        addon_xml = ETree.fromstring(raw_xml)
+        for node in addon_xml.iterfind("addon"):
+            addonid = node.attrib["id"]
+            self.db[addonid] = Addon(node)
+
+    def update(self):
+        """Check if any cached plugins need updating."""
+        if not self.db:
+            self.populate()
+
+        requires = []
+        for addon in avail_addons.values():
+            # Add addon to requires list if cached addon is outdated
+            if addon.id in self.db and addon.version < self.db[addon.id].version:
+                requires.append(Dependency(addon.id, self.db[addon.id].version, False))
+
+        if requires:
+            self.fetch(requires)
+
+    def fetch(self, required):
+        """
+        Fetch any required addons.
+
+        :param list required: List of required dependencies."""
+        if not self.db:
+            self.populate()
+
+        # Process required addons befor downloading
+        for req_dep in required:
+            if req_dep.id in self.db:
+                addon = self.db[req_dep.id]
+
+                # Check that the versin of the available addon is greater or equal to required addon
+                if addon.version >= req_dep.version:
+                    # Check dependency of required addon
+                    for dep in addon.requires:
+                        if dep not in required and dep.id not in avail_addons:
+                            required.append(dep)
+
+                    # Now we download the addon
+                    self.download(addon)
+                else:
+                    raise ValueError("required version is greater than whats available: need {} - have {}"
+                                     .format(req_dep.version, addon.version))
+
+            # Raise error only if addon is not actually required(optional)
+            elif req_dep.optional is False:
+                raise KeyError("unable to find required dependency: '{}'".format(req_dep.id))
+
+    def download(self, addon):
+        """
+        Download any requred addon
+
+        :param Addon addon: The addon to download
+        """
+        filename = u"{0}-{1}.zip".format(addon.id, addon.version)
+        tmp = safe_path(os.path.join(self._package_dir, filename))
+        logger.info("Downloading: '{}'".format(filename.encode("utf8")))
+
+        # Remove old zipfile before download
+        # This will prevent an error if the addon was manually removed by user
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+        # Request the addon zipfile from server
+        url_part = "{0}/{1}".format(addon.id, filename)
+        url = self.repo_url.format(url_part)
+        resp = self._session.get(url)
+
+        # Read and save contents of zipfile to package directory
+        with _open(tmp, "wb") as stream:
+            for chunk in resp.iter_content(decode_unicode=False):
+                stream.write(chunk)
+
+        # Remove the old plugin directory if exists
+        # This is needed when updating addons
+        udst = os.path.join(self._addon_dir, addon.id)
+        sdst = safe_path(udst)
+        if os.path.exists(sdst):
+            shutil.rmtree(sdst)
+
+        resp.close()
+        self.extract_zip(tmp)
+
+        addon.path = udst
+        addon.preload()
+        avail_addons[addon.id] = addon
+
+    def extract_zip(self, src):
+        """Extract all content of zipfile to addon directoy."""
+        zipobj = zipfile.ZipFile(src)
+        zipobj.extractall(self._addon_dir)
 
 
 class Addon(object):
@@ -350,139 +481,6 @@ class Addon(object):
 
     def __repr__(self):
         return "Addon(id={})".format(self.id)
-
-
-class Repo(object):
-    """Check the official kodi repositories for available addons."""
-
-    # Kodi version code names for repository linking
-    repo_url = "http://mirrors.kodi.tv/addons/krypton/{}"
-
-    def __init__(self):
-        self._addon_dir = kodi_paths["addons"]
-        self._package_dir = kodi_paths["packages"]
-        self.db = {}
-
-        # Check if an update is scheduled
-        self.update_file = safe_path(os.path.join(kodi_paths["temp"], u"update_check"))
-        if self.update_required():
-            self.update()
-
-    @CacheProperty
-    def _session(self):
-        import requests
-        return requests.session()
-
-    def update_required(self, max_age=432000):
-        """Return True if its time to update."""
-        if os.path.exists(self.update_file):
-            update = (time.time() - os.stat(self.update_file).st_mtime) > max_age
-            if update:
-                # Reset the timestamp of the check file
-                os.utime(self.update_file, None)
-            return update
-        else:
-            # Create missing check file and force update
-            _open(self.update_file, "w").close()
-            return True
-
-    def populate(self):
-        """Search for all available addons."""
-        logger.info("Communicating with kodi's official repository: Please wait.")
-        url = self.repo_url.format("addons.xml")
-        raw_xml = self._session.get(url).content
-        addon_xml = ETree.fromstring(raw_xml)
-        for node in addon_xml.iterfind("addon"):
-            addonid = node.attrib["id"]
-            self.db[addonid] = Addon(node)
-
-    def update(self):
-        """Check if any cached plugins need updating."""
-        if not self.db:
-            self.populate()
-
-        requires = []
-        for addon in avail_addons.values():
-            # Add addon to requires list if cached addon is outdated
-            if addon.id in self.db and addon.version < self.db[addon.id].version:
-                requires.append(Dependency(addon.id, self.db[addon.id].version, False))
-
-        if requires:
-            self.fetch(requires)
-
-    def fetch(self, required):
-        """
-        Fetch any required addons.
-
-        :param list required: List of required dependencies."""
-        if not self.db:
-            self.populate()
-
-        # Process required addons befor downloading
-        for req_dep in required:
-            if req_dep.id in self.db:
-                addon = self.db[req_dep.id]
-
-                # Check that the versin of the available addon is greater or equal to required addon
-                if addon.version >= req_dep.version:
-                    # Check dependency of required addon
-                    for dep in addon.requires:
-                        if dep not in required and dep.id not in avail_addons:
-                            required.append(dep)
-
-                    # Now we download the addon
-                    self.download(addon)
-                else:
-                    raise ValueError("required version is greater than whats available: need {} - have {}"
-                                     .format(req_dep.version, addon.version))
-
-            # Raise error only if addon is not actually required(optional)
-            elif req_dep.optional is False:
-                raise KeyError("unable to find required dependency: '{}'".format(req_dep.id))
-
-    def download(self, addon):
-        """
-        Download any requred addon
-
-        :param Addon addon: The addon to download
-        """
-        filename = u"{0}-{1}.zip".format(addon.id, addon.version)
-        tmp = safe_path(os.path.join(self._package_dir, filename))
-        logger.info("Downloading: '{}'".format(filename.encode("utf8")))
-
-        # Remove old zipfile before download
-        # This will prevent an error if the addon was manually removed by user
-        if os.path.exists(tmp):
-            os.remove(tmp)
-
-        # Request the addon zipfile from server
-        url_part = "{0}/{1}".format(addon.id, filename)
-        url = self.repo_url.format(url_part)
-        resp = self._session.get(url)
-
-        # Read and save contents of zipfile to package directory
-        with _open(tmp, "wb") as stream:
-            for chunk in resp.iter_content(decode_unicode=False):
-                stream.write(chunk)
-
-        # Remove the old plugin directory if exists
-        # This is needed when updating addons
-        udst = os.path.join(self._addon_dir, addon.id)
-        sdst = safe_path(udst)
-        if os.path.exists(sdst):
-            shutil.rmtree(sdst)
-
-        resp.close()
-        self.extract_zip(tmp)
-
-        addon.path = udst
-        addon.preload()
-        avail_addons[addon.id] = addon
-
-    def extract_zip(self, src):
-        """Extract all content of zipfile to addon directoy."""
-        zipobj = zipfile.ZipFile(src)
-        zipobj.extractall(self._addon_dir)
 
 
 class Strings(Mapping):

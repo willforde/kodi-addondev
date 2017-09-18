@@ -9,7 +9,7 @@ import os
 # Package imports
 from addondev.interactive import interactive
 from addondev.utils import safe_path, ensure_unicode
-from addondev.support import logger
+from addondev.support import logger, Repo
 
 # Create Parser to parse the required arguments
 parser = ArgumentParser(description="Execute kodi plugin")
@@ -20,10 +20,14 @@ parser.add_argument("-l", "--logging",
                     help="Show debug logging output", action="store_true")
 
 parser.add_argument("-p", "--preselect",
-                    help="Comma separated list of pre selections", nargs=1)
+                    help="Comma separated list of pre selections")
 
 parser.add_argument("-c", "--content-type",
-                    help="The content type to list, if more than one type is available", nargs=1)
+                    help="The content type to list, if more than one type is available")
+
+parser.add_argument("-r", "--repo",
+                    help="The official kodi repository to use when downloading dependencies. (krypton)",
+                    default="krypton")
 
 
 def main():
@@ -35,13 +39,16 @@ def main():
         logger.setLevel(logging.DEBUG)
 
     # Convert any preselection into a list of selections
-    preselect = list(map(int, args.preselect[0].split(","))) if args.preselect else None
+    preselect = list(map(int, args.preselect.split(","))) if args.preselect else None
+
+    # Set the repo to use for dependency resolving
+    Repo.repo = args.repo
 
     # Execute the addon in interactive mode
     plugin_path = os.path.realpath(decode_arg(args.pluginpath))
     arguments = [plugin_path, preselect]
     if args.content_type:
-        arguments.append(args.content_type[0])
+        arguments.append(args.content_type)
 
     # Check if plugin actually exists
     if os.path.exists(safe_path(plugin_path)):
