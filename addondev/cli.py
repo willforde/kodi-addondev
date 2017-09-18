@@ -13,9 +13,17 @@ from addondev.support import logger
 
 # Create Parser to parse the required arguments
 parser = ArgumentParser(description="Execute kodi plugin")
-parser.add_argument("pluginpath", help="The path to the plugin to execute. Path can be full or relative")
-parser.add_argument("-l", "--logging", help="Show debug logging output", action="store_true")
-parser.add_argument("-p", "--preselect", help="Comma separated list of pre selections", nargs=1)
+parser.add_argument("pluginpath",
+                    help="The path to the plugin to execute. Path can be full or relative")
+
+parser.add_argument("-l", "--logging",
+                    help="Show debug logging output", action="store_true")
+
+parser.add_argument("-p", "--preselect",
+                    help="Comma separated list of pre selections", nargs=1)
+
+parser.add_argument("-c", "--content-type",
+                    help="The content type to list, if more than one type is available", nargs=1)
 
 
 def main():

@@ -254,7 +254,7 @@ class Addon(object):
         :rtype: list
         """
         data = self._xml.find("./extension[@point='xbmc.python.pluginsource']/provides")
-        if data:
+        if data is not None:
             return [provider.strip() for provider in data.text.split(" ")]
         else:
             return []

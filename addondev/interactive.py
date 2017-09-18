@@ -16,12 +16,13 @@ from addondev.utils import input_raw, ensure_native_str
 from addondev import support
 
 
-def interactive(pluginpath, preselect=None):
+def interactive(pluginpath, preselect=None, content_type="video"):
     """
     Execute a given kodi plugin
 
     :param unicode pluginpath: The path to the plugin to execute.
     :param list preselect: A list of pre selection to make.
+    :param str content_type: The content type to list, if more than one type is available. e.g. video, audio
     """
     plugin_id = os.path.basename(pluginpath)
     callback_url = base_url = u"plugin://{}/".format(plugin_id)
@@ -34,7 +35,7 @@ def interactive(pluginpath, preselect=None):
             raise RuntimeError("callback url is outside the scope of this addon: {}".format(callback_url))
 
         # Execute the addon in a separate process
-        data = execute_addon(pluginpath, callback_url)
+        data = execute_addon(pluginpath, callback_url, content_type)
         if data["succeeded"] is False:
             print("Failed to execute addon. Please check log.")
             try:
@@ -71,20 +72,20 @@ def interactive(pluginpath, preselect=None):
             break
 
 
-def execute_addon(pluginpath, callback_url):
+def execute_addon(*args):
     """
     Executes a add-on in a separate process.
 
-    :param unicode pluginpath: The path to the plugin to execute.
-    :param str callback_url: The url containing the route path and callback params.
     :returns: A dictionary of listitems and other related results.
     :rtype: dict
     """
     # Pips to handle passing of data from addon process to controler
     pipe_recv, pipe_send = multiprocessing.Pipe(duplex=True)
+    process_args = [pipe_send]
+    process_args.extend(args)
 
     # Create the new process that will execute the addon
-    p = multiprocessing.Process(target=subprocess, args=[pipe_send, pluginpath, callback_url])
+    p = multiprocessing.Process(target=subprocess, args=process_args)
     p.start()
 
     # Wait till we receive data from the addon process
@@ -100,22 +101,37 @@ def execute_addon(pluginpath, callback_url):
     return data
 
 
-def subprocess(pipe_send, pluginpath, callback_url):
+def subprocess(pipe_send, pluginpath, callback_url, content_type):
     """
-    Imports and executes the addon
+    Imports and executes the addon.
 
     :param pipe_send: The communication object used for sending data back to the initiator.
     :param unicode pluginpath: The path to the plugin to execute.
     :param str callback_url: The url containing the route path and callback params.
+    :param str content_type: The content type to list, if more than one type is available.
     """
     addon_data = support.initializer(pluginpath)
     support.data_pipe = pipe_send
 
-    # TODO: Add support for content_type when plugins have muilti providers e.g. video, music.
-
-    # Splits callback into route selector & params, patch sys.argv to emulate what is expected
+    # Splits callback into it's individual components
     scheme, pluginid, selector, params, _ = urlparse.urlsplit(ensure_native_str(callback_url))
-    sys.argv = (urlparse.urlunsplit([scheme, pluginid, selector, "", ""]), -1, "?%s" % params if params else "")
+    if params:
+        params = "?%s" % params
+
+    # Add content_type to params if more than one provider exists
+    elif len(addon_data.provides) > 1:
+        for ctype in addon_data.provides:
+            if content_type == ctype:
+                params = "?content_type={}".format(ctype)
+                break
+        else:
+            # Default to the first provider if selected type was not found
+            params = "?content_type={}".format(addon_data.provides[0])
+            support.logger("Unable to find selected content_type '{}', defaulting to '{}'"
+                           .format(content_type, addon_data.provides[0]))
+
+    # Patch sys.argv to emulate what is expected
+    sys.argv = (urlparse.urlunsplit([scheme, pluginid, selector, "", ""]), -1, params)
 
     try:
         addon = __import__(addon_data.entry_point)
