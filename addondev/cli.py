@@ -49,7 +49,7 @@ def main():
 
     # Check if we are already in the requested plugin directory if pluginpath was a plugin id
     elif args.pluginpath.startswith("plugin.") and os.path.basename(os.getcwd()) == args.pluginpath:
-        plugin_path = ensure_unicode(os.getcwd(), sys.getfilesystemencoding())
+        arguments[0] = ensure_unicode(os.getcwd(), sys.getfilesystemencoding())
         interactive(*arguments)
     else:
         raise RuntimeError("unable to find requested add-on: {}".format(plugin_path.encode("utf8")))
