@@ -16,7 +16,7 @@ parser = ArgumentParser(description="Execute kodi plugin")
 parser.add_argument("pluginpath",
                     help="The path to the plugin to execute. Path can be full or relative")
 
-parser.add_argument("-l", "--logging",
+parser.add_argument("-d", "--debug",
                     help="Show debug logging output", action="store_true")
 
 parser.add_argument("-p", "--preselect",
@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args(sys.argv[1:])
 
     # Enable debug logging if logging flag was given
-    if args.logging:
+    if args.debug:
         logger.setLevel(logging.DEBUG)
 
     # Convert any preselection into a list of selections
