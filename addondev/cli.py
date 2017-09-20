@@ -19,10 +19,16 @@ parser.add_argument("pluginpath",
 parser.add_argument("-d", "--debug",
                     help="Show debug logging output", action="store_true")
 
+parser.add_argument("-c", "--compact",
+                    help="Compact each listitem down to one line", action="store_true")
+
+parser.add_argument("-n", "--no-crop",
+                    help="Disable croping of long lines of text when in detailed mode", action="store_true")
+
 parser.add_argument("-p", "--preselect",
                     help="Comma separated list of pre selections")
 
-parser.add_argument("-c", "--content-type",
+parser.add_argument("-t", "--content-type",
                     help="The content type to list, if more than one type is available")
 
 parser.add_argument("-r", "--repo",
@@ -52,12 +58,12 @@ def main():
 
     # Check if plugin actually exists
     if os.path.exists(safe_path(plugin_path)):
-        interactive(*arguments)
+        interactive(*arguments, compact_mode=args.compact, no_crop=args.no_crop)
 
     # Check if we are already in the requested plugin directory if pluginpath was a plugin id
     elif args.pluginpath.startswith("plugin.") and os.path.basename(os.getcwd()) == args.pluginpath:
         arguments[0] = ensure_unicode(os.getcwd(), sys.getfilesystemencoding())
-        interactive(*arguments)
+        interactive(*arguments, compact_mode=args.compact, no_crop=args.no_crop)
     else:
         raise RuntimeError("unable to find requested add-on: {}".format(plugin_path.encode("utf8")))
 

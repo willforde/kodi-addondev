@@ -1,9 +1,16 @@
 # Standard Library Imports
 from __future__ import unicode_literals
 import multiprocessing
+import binascii
+import json
 import sys
 import re
 import os
+
+try:
+    from shutil import get_terminal_size
+except NameError:
+    from backports.shutil_get_terminal_size import get_terminal_size
 
 try:
     import urllib.parse as urlparse
@@ -12,17 +19,19 @@ except ImportError:
     import urlparse
 
 # Package imports
-from addondev.utils import input_raw, ensure_native_str
+from addondev.utils import input_raw, ensure_native_str, unicode_type
 from addondev import support
 
 
-def interactive(pluginpath, preselect=None, content_type="video"):
+def interactive(pluginpath, preselect=None, content_type="video", compact_mode=False, no_crop=False):
     """
     Execute a given kodi plugin
 
     :param unicode pluginpath: The path to the plugin to execute.
     :param list preselect: A list of pre selection to make.
     :param str content_type: The content type to list, if more than one type is available. e.g. video, audio
+    :param bool compact_mode: If True the listitems view will be compacted, else full detailed. (default => False)
+    :param bool no_crop: Disable croping of long lines of text if True, (default => False)
     """
     plugin_id = os.path.basename(pluginpath)
     callback_url = base_url = u"plugin://{}/".format(plugin_id)
@@ -61,7 +70,11 @@ def interactive(pluginpath, preselect=None, content_type="video"):
             items.extend(data["playlist"][1:])
 
         # Display the list of listitems for user to select
-        selected_item = item_selector(items, callback_url, preselect)
+        if compact_mode:
+            selected_item = compact_item_selector(items, callback_url, preselect)
+        else:
+            selected_item = detailed_item_selector(items, preselect, no_crop)
+
         if selected_item:
             if parent_stack and selected_item["path"] == parent_stack[-1]:
                 callback_url = parent_stack.pop()
@@ -141,7 +154,7 @@ def subprocess(pipe_send, pluginpath, callback_url, content_type):
         pipe_send.send(support.plugin_data)
 
 
-def item_selector(listitems, current, preselect):
+def compact_item_selector(listitems, current, preselect):
     """
     Displays a list of items along with the index to enable a user to select an item.
 
@@ -153,7 +166,7 @@ def item_selector(listitems, current, preselect):
     """
     # Calculate the max length of required lines
     title_len = max(len(item["label"].strip()) for item in listitems) + 1
-    num_len = len(str(len(listitems)-1))
+    num_len = len(str(len(listitems) - 1))
     line_width = 400
     type_len = 8
 
@@ -162,7 +175,7 @@ def item_selector(listitems, current, preselect):
               "=" * line_width,
               "Current URL: %s" % current,
               "-" * line_width,
-              "%s %s %s Listitem" % ("#".center(num_len+1), "Label".ljust(title_len), "Type".ljust(type_len)),
+              "%s %s %s Listitem" % ("#".center(num_len + 1), "Label".ljust(title_len), "Type".ljust(type_len)),
               "-" * line_width]
 
     # Create a line output for each listitem entry
@@ -191,6 +204,96 @@ def item_selector(listitems, current, preselect):
         return listitems[preselect.pop(0)]
     else:
         return user_choice(listitems)
+
+
+def detailed_item_selector(listitems, preselect, no_crop):
+    """
+    Displays a list of items along with the index to enable a user to select an item.
+
+    :param list listitems: List of dictionarys containing all of the listitem data.
+    :param list preselect: A list of pre selection to make.
+    :param bool no_crop: Disable croping of long lines of text if True, (default => False)
+    :returns: The selected item
+    :rtype: dict
+    """
+    terminal_width = max(get_terminal_size((80, 25)).columns, 80)  # Ensures a line minimum of 80
+
+    def line_limiter(text):
+        if isinstance(text, (bytes, unicode_type)):
+            text = text.replace("\n", "").replace("\r", "")
+        else:
+            text = str(text)
+
+        if no_crop is False and len(text) > (terminal_width - size_of_name):
+            return "{}...".format(text[:terminal_width - (size_of_name + 3)])
+        else:
+            return text
+    
+    # Print out all listitem to console
+    for count, item in enumerate(listitems):
+        if count > 0:
+            print("\n{}\n".format("#" * terminal_width))
+
+        # Process listitem into a list of property name and value
+        process_items = process_listitem(item.copy())
+
+        # Calculate the max length of property name
+        size_of_name = max(16, *[len(name) for name, _ in process_items])  # Ensures that spaceing is 16 at minimum
+
+        for key, value in process_items:
+            print(key.ljust(size_of_name), line_limiter(value))
+    
+    print("-" * terminal_width)
+
+    # Return preselected item or ask user to selection
+    if preselect:
+        print("Item %s has been pre-selected.\n" % preselect[0])
+        return listitems[preselect.pop(0)]
+    else:
+        return user_choice(listitems)
+
+
+def process_listitem(item):
+    label = re.sub("\[[^\]]+?\]", "", item.pop("label")).strip()
+    buffer = [("Label", label)]
+    
+    if "label2" in item:
+        buffer.append(("Label 2", item.pop("label2").strip()))
+
+    if "path" in item:
+        path = item.pop("path")
+        buffer.append(("Path:", ""))
+        if path.startswith("plugin://"):
+            parts = urlparse.urlsplit(path)
+            buffer.append(("- pluginid", parts.netloc))
+            if parts.path:
+                buffer.append(("- selecter", parts.path))
+
+            if parts.query:
+                query = urlparse.parse_qsl(parts.query)
+                for key, value in query:
+                    if key == "_json_":
+                        data = json.loads(binascii.unhexlify(value))
+                        if isinstance(data, dict):
+                            query.extend(data.items())
+                    else:
+                        buffer.append(("- {}".format(key), value))
+    
+    if "context" in item:
+        context = item.pop("context")
+        buffer.append(("Context:", ""))
+        for name, command in context:
+            buffer.append(("- {}".format(name), command))
+
+    for key, value in item.items():
+        if isinstance(value, dict):
+            buffer.append(("{}:".format(key.title()), ""))
+            for sub_key, sub_value in value.items():
+                buffer.append(("- {}".format(sub_key), sub_value))
+        else:
+            buffer.append((key.title(), value))
+
+    return buffer
 
 
 def user_choice(items):
