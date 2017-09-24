@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 import multiprocessing
 import binascii
+import pickle
 import json
 import sys
 import re
@@ -216,7 +217,7 @@ def detailed_item_selector(listitems, preselect, no_crop):
     :returns: The selected item
     :rtype: dict
     """
-    terminal_width = max(get_terminal_size((80, 25)).columns, 80)  # Ensures a line minimum of 80
+    terminal_width = max(get_terminal_size((300, 25)).columns, 80)  # Ensures a line minimum of 80
 
     def line_limiter(text):
         if isinstance(text, (bytes, unicode_type)):
@@ -228,17 +229,24 @@ def detailed_item_selector(listitems, preselect, no_crop):
             return "{}...".format(text[:terminal_width - (size_of_name + 3)])
         else:
             return text
-    
+
+    print("")
     # Print out all listitem to console
     for count, item in enumerate(listitems):
-        if count > 0:
-            print("\n{}\n".format("#" * terminal_width))
-
         # Process listitem into a list of property name and value
         process_items = process_listitem(item.copy())
 
         # Calculate the max length of property name
-        size_of_name = max(16, *[len(name) for name, _ in process_items])  # Ensures that spaceing is 16 at minimum
+        size_of_name = max(16, *[len(name) for name, _ in process_items])  # Ensures a minimum spaceing of 16
+
+        label = "{}. {}".format(count, process_items.pop(0)[1])
+        if count == 0:
+            print("{}".format("#" * 80))
+        else:
+            print("\n\n{}".format("#" * 80))
+        
+        print(line_limiter(label))
+        print("{}".format("#" * 80))
 
         for key, value in process_items:
             print(key.ljust(size_of_name), line_limiter(value))
@@ -256,7 +264,7 @@ def detailed_item_selector(listitems, preselect, no_crop):
 def process_listitem(item):
     label = re.sub("\[[^\]]+?\]", "", item.pop("label")).strip()
     buffer = [("Label", label)]
-    
+
     if "label2" in item:
         buffer.append(("Label 2", item.pop("label2").strip()))
 
@@ -274,6 +282,10 @@ def process_listitem(item):
                 for key, value in query:
                     if key == "_json_":
                         data = json.loads(binascii.unhexlify(value))
+                        if isinstance(data, dict):
+                            query.extend(data.items())
+                    elif key == "_pickle_":
+                        data = pickle.loads(binascii.unhexlify(value))
                         if isinstance(data, dict):
                             query.extend(data.items())
                     else:

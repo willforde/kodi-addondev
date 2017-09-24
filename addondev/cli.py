@@ -13,27 +13,28 @@ from addondev.support import logger, Repo
 
 # Create Parser to parse the required arguments
 parser = ArgumentParser(description="Execute kodi plugin")
-parser.add_argument("pluginpath",
-                    help="The path to the plugin to execute. Path can be full or relative")
+parser.add_argument("addonpath",
+                    help="The path to the addon to execute. Path can be full or relative")
 
-parser.add_argument("-d", "--debug",
-                    help="Show debug logging output", action="store_true")
+parser.add_argument("-d", "--debug", action="store_true",
+                    help="Show debug logging output")
 
-parser.add_argument("-c", "--compact",
-                    help="Compact each listitem down to one line", action="store_true")
+parser.add_argument("-c", "--compact", action="store_true",
+                    help="Compact listitem view, to one line per listitem."
+                    "In this mode, text length will not be croped to fit withen terminal window.")
 
-parser.add_argument("-n", "--no-crop",
-                    help="Disable croping of long lines of text when in detailed mode", action="store_true")
+parser.add_argument("-n", "--no-crop", action="store_true",
+                    help="Disable croping of long lines of text when in detailed mode. Ignored when in compact mode.")
 
 parser.add_argument("-p", "--preselect",
                     help="Comma separated list of pre selections")
 
 parser.add_argument("-t", "--content-type",
-                    help="The content type to list, if more than one type is available")
+                    help="Type of content that the addon provides. Used when there is more than one type specified"
+                    "within provides section of addon.xml. If this is not set it will default to video.")
 
-parser.add_argument("-r", "--repo",
-                    help="The official kodi repository to use when downloading dependencies. (krypton)",
-                    default="krypton")
+parser.add_argument("-r", "--repo", default="krypton",
+                    help="The official kodi repository to use when downloading dependencies. (krypton)")
 
 
 def main():
@@ -51,7 +52,7 @@ def main():
     Repo.repo = args.repo
 
     # Execute the addon in interactive mode
-    plugin_path = os.path.realpath(decode_arg(args.pluginpath))
+    plugin_path = os.path.realpath(decode_arg(args.addonpath))
     arguments = [plugin_path, preselect]
     if args.content_type:
         arguments.append(args.content_type)
