@@ -1,5 +1,5 @@
 # Standard Library Imports
-from __future__ import unicode_literals
+from __future__ import print_function
 import multiprocessing
 import binascii
 import pickle
@@ -10,7 +10,7 @@ import os
 
 try:
     from shutil import get_terminal_size
-except NameError:
+except ImportError:
     from backports.shutil_get_terminal_size import get_terminal_size
 
 try:
@@ -226,7 +226,7 @@ def detailed_item_selector(listitems, preselect, no_crop):
             text = str(text)
 
         if no_crop is False and len(text) > (terminal_width - size_of_name):
-            return "{}...".format(text[:terminal_width - (size_of_name + 3)])
+            return "%s..." % (text[:terminal_width - (size_of_name + 3)])
         else:
             return text
 
@@ -239,7 +239,7 @@ def detailed_item_selector(listitems, preselect, no_crop):
         # Calculate the max length of property name
         size_of_name = max(16, *[len(name) for name, _ in process_items])  # Ensures a minimum spaceing of 16
 
-        label = "{}. {}".format(count, process_items.pop(0)[1])
+        label = "%s. %s" % (count, process_items.pop(0)[1])
         if count == 0:
             print("{}".format("#" * 80))
         else:
@@ -270,8 +270,8 @@ def process_listitem(item):
 
     if "path" in item:
         path = item.pop("path")
-        buffer.append(("Path:", ""))
         if path.startswith("plugin://"):
+            buffer.append(("Path:", ""))
             parts = urlparse.urlsplit(path)
             buffer.append(("- pluginid", parts.netloc))
             if parts.path:
@@ -290,6 +290,8 @@ def process_listitem(item):
                             query.extend(data.items())
                     else:
                         buffer.append(("- {}".format(key), value))
+        else:
+            buffer.append(("Path", path))
     
     if "context" in item:
         context = item.pop("context")
