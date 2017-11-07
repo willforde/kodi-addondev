@@ -273,7 +273,7 @@ class Repo(object):
         :param Addon addon: The addon to download
         """
         filename = u"{0}-{1}.zip".format(addon.id, addon.version)
-        tmp = safe_path(os.path.join(self._package_dir, filename))
+        tmp = os.path.join(self._package_dir, filename)
         logger.info("Downloading: '{}'".format(filename.encode("utf8")))
 
         # Remove old zipfile before download
