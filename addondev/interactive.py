@@ -297,6 +297,7 @@ def process_listitem(item):
         context = item.pop("context")
         buffer.append(("Context:", ""))
         for name, command in context:
+            command = re.sub("_(?:pickle|json)_=([0-9a-f]+)", decode_args, command, flags=re.IGNORECASE)
             buffer.append(("- {}".format(name), command))
 
     for key, value in item.items():
@@ -308,6 +309,18 @@ def process_listitem(item):
             buffer.append((key.title(), value))
 
     return buffer
+
+
+def decode_args(matchobj):
+    hex_type = matchobj.group(0)
+    hex_code = matchobj.group(1)
+
+    if hex_type.startswith("_json_"):
+        return str(json.loads(binascii.unhexlify(hex_code)))
+    elif hex_type.startswith("_pickle_"):
+        return str((pickle.loads(binascii.unhexlify(hex_code))))
+    else:
+        return matchobj.group(1)
 
 
 def user_choice(items):
