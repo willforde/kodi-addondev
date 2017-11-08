@@ -68,6 +68,7 @@ def initializer(plugin_path):
     avail_addons[plugin_id] = addon = Addon.from_file(os.path.join(plugin_path, u"addon.xml"))
     sys.path.insert(0, plugin_path)
     os.chdir(plugin_path)
+    addon.preload()
 
     # Preload all existing addons
     for plugin_file in find_addons(system_dir, addon_dir):
