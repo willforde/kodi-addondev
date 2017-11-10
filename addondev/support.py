@@ -69,7 +69,6 @@ def initializer(plugin_path):
     sys.path.insert(0, plugin_path)
     os.chdir(plugin_path)
     addon.preload()
-    logger.warning(plugin_path)
 
     # Preload all existing addons
     for plugin_file in find_addons(system_dir, addon_dir):
