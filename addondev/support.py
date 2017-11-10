@@ -14,6 +14,9 @@ import sys
 import os
 import re
 
+# Third party imports
+import appdirs
+
 # Package Imports
 from addondev.utils import CacheProperty, ensure_unicode, ensure_native_str, safe_path, unicode_type
 
@@ -88,7 +91,7 @@ def setup_paths(plugin_path):
     kodi_paths["support"] = system_dir
 
     # Kodi path structure
-    kodi_paths["home"] = home = os.path.join(plugin_path, u".kodi")
+    kodi_paths["home"] = home = appdirs.user_cache_dir(u"kodi_mock")
     kodi_paths["addons"] = addon_dir = os.path.join(home, u"addons")
     kodi_paths["packages"] = os.path.join(addon_dir, u"packages")
     kodi_paths["temp"] = temp_dir = os.path.join(home, u"temp")

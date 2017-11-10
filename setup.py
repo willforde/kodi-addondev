@@ -30,7 +30,7 @@ setup(
     author='william Forde',
     author_email='willforde@gmail.com',
     license='MIT License',
-    install_requires=['requests', 'backports.shutil_get_terminal_size;python_version<"3.3"'],
+    install_requires=['requests', 'appdirs', 'backports.shutil_get_terminal_size;python_version<"3.3"'],
     platforms=['OS Independent'],
     packages=['addondev'],
     package_data={'addondev': data_files()},
