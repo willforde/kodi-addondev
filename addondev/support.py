@@ -64,7 +64,7 @@ def initializer(plugin_path):
     :param plugin_path: The path to the plugin that will be executed.
     """
     global plugin_id
-    system_dir, addon_dir = setup_paths(plugin_path)
+    system_dir, addon_dir = setup_paths()
     plugin_id = os.path.basename(plugin_path)
 
     # First available addon with be the starting plugin
@@ -85,7 +85,7 @@ def initializer(plugin_path):
     return addon
 
 
-def setup_paths(plugin_path):
+def setup_paths():
     # Location of support files
     system_dir = os.path.join(ensure_unicode(os.path.dirname(__file__), sys.getfilesystemencoding()), u"data")
     kodi_paths["support"] = system_dir
