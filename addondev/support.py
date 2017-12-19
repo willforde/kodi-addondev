@@ -108,7 +108,7 @@ def setup_paths():
     for path in kodi_paths.values():
         path = safe_path(path)
         if not os.path.exists(path):
-            os.mkdir(path)
+            os.makedirs(path)
 
     # Rest of kodi's special paths
     kodi_paths["logpath"] = os.path.join(temp_dir, u"kodi.log")
