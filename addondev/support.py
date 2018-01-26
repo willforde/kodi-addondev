@@ -56,6 +56,8 @@ supported_media = {"video": ".m4v|.3g2|.3gp|.nsv|.tp|.ts|.ty|.strm|.pls|.rm|.rmv
                    "picture": ".png|.jpg|.jpeg|.bmp|.gif|.ico|.tif|.tiff|.tga|.pcx|.cbz|.zip|.cbr|.rar|.rss|.webp"
                               "|.jp2|.apng"}
 
+data_log = {"notifications": []}
+
 
 def initializer(plugin_path):
     """
@@ -427,7 +429,7 @@ class Addon(object):
             if data.get("lang", "en").lower().startswith("en"):
                 return data.text
 
-        if node is None:
+        if node is None or len(node) == 0:
             return ""
         else:
             return node[0].text
@@ -450,6 +452,7 @@ class Addon(object):
         else:
             return os.path.join(self.path, os.path.normpath(path.text))
 
+    @CacheProperty
     def changelog(self):
         data = self._metadata.findall("news")
         if data is not None:
@@ -459,6 +462,8 @@ class Addon(object):
             if os.path.exists(changelog_file):
                 with _open(changelog_file, "r", "utf8") as stream:
                     return stream.read()
+            else:
+                return ""
 
     @CacheProperty
     def type(self):
