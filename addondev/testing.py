@@ -1,7 +1,8 @@
 from contextlib import contextmanager
-from addondev.support import data_log
 import xbmcgui
 import xbmc
+
+from addondev.support import data_log, plugin_data
 
 
 @contextmanager
