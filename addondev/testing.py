@@ -1,4 +1,6 @@
 from contextlib import contextmanager
+
+import xbmcaddon
 import xbmcgui
 import xbmc
 
@@ -21,3 +23,12 @@ def mock_select_dialog(data):
         yield
     finally:
         del xbmcgui.Dialog.mock_data["select"][:]
+
+
+@contextmanager
+def mock_setting(setting_id, value):
+    xbmcaddon.mock_data["setting"][setting_id] = value
+    try:
+        yield
+    finally:
+        del xbmcaddon.mock_data["setting"][setting_id]
