@@ -6,6 +6,7 @@ from xml.etree import ElementTree as ETree
 from collections import Mapping, OrderedDict
 from codecs import open as _open
 from xml.dom import minidom
+import warnings
 import logging
 import zipfile
 import shutil
@@ -257,8 +258,8 @@ class Repo(object):
 
                 # Warn user if we are downloading an older version than what is required
                 if addon.version < req_dep.version:
-                    raise Warning("required version is greater than whats available: need {} - have {}"
-                                     .format(req_dep.version, addon.version))
+                    warnings.warn("required version is greater than whats available: need {} - have {}"
+                                  .format(req_dep.version, addon.version), RuntimeWarning)
 
                 # Check dependency of required addon
                 for dep in addon.requires:
