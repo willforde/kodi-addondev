@@ -255,18 +255,18 @@ class Repo(object):
             if req_dep.id in self.db:
                 addon = self.db[req_dep.id]
 
-                # Check that the versin of the available addon is greater or equal to required addon
-                if addon.version >= req_dep.version:
-                    # Check dependency of required addon
-                    for dep in addon.requires:
-                        if dep not in required and dep.id not in avail_addons:
-                            required.append(dep)
-
-                    # Now we download the addon
-                    self.download(addon)
-                else:
+                # Warn user if we are downloading an older version than what is required
+                if addon.version < req_dep.version:
                     raise ValueError("required version is greater than whats available: need {} - have {}"
                                      .format(req_dep.version, addon.version))
+
+                # Check dependency of required addon
+                for dep in addon.requires:
+                    if dep not in required and dep.id not in avail_addons:
+                        required.append(dep)
+
+                # Now we download the addon
+                self.download(addon)
 
             # Raise error only if addon is not actually required(optional)
             elif req_dep.optional is False:
