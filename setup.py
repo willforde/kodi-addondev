@@ -15,7 +15,7 @@ def data_files():
 
 setup(
     name='addondev',
-    version='0.0.4',
+    version='0.0.5',
     description='Launch kodi add-ons from outside kodi.',
     keywords='kodi plugin addon cli',
     classifiers=['Development Status :: 4 - Beta',
