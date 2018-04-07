@@ -69,6 +69,7 @@ def initializer(plugin_path):
     global plugin_id
     system_dir, addon_dir = setup_paths()
     plugin_id = os.path.basename(plugin_path)
+    sys.argv = ["plugin://script.module.codequick", -1, ""]
 
     # First available addon with be the starting plugin
     avail_addons[plugin_id] = addon = Addon.from_file(os.path.join(plugin_path, u"addon.xml"))
