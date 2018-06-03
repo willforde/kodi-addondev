@@ -406,7 +406,7 @@ class Addon(object):
         :returns: A list of Dependency objects consisting of (id, version, optional)
         :rtype: list
         """
-        return [Dependency(imp.attrib["addon"], imp.attrib["version"], imp.get("optional", "false") == "true")
+        return [Dependency(imp.attrib["addon"], imp.get("version", "0.0.1"), imp.get("optional", "false") == "true")
                 for imp in self._xml.findall("requires/import")]
 
     @CacheProperty
