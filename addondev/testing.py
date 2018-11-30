@@ -1,10 +1,19 @@
 from contextlib import contextmanager
-
 import xbmcaddon
 import xbmcgui
 import xbmc
 
 from addondev.support import data_log, plugin_data
+
+from copy import deepcopy as _deepcopy
+
+_org_plugin_data = _deepcopy(plugin_data)
+
+
+def reset_plugin_data():
+    plugin_data.clear()
+    new_data = _deepcopy(_org_plugin_data)
+    plugin_data.update(new_data)
 
 
 @contextmanager
