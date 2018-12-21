@@ -30,12 +30,12 @@ setup(
     author='william Forde',
     author_email='willforde@gmail.com',
     license='MIT License',
-    install_requires=['requests', 'appdirs', 'backports.shutil_get_terminal_size;python_version<"3.3"'],
+    install_requires=['requests', 'appdirs', 'backports.shutil_get_terminal_size;python_version<"3.3"', 'typing<3.5'],
     platforms=['OS Independent'],
     packages=['addondev'],
     package_data={'addondev': data_files()},
     entry_points={'console_scripts': ['addondev=addondev.cli:main']},
-    extras_require={'dev': ['pytest-cov', 'pytest', 'coverage', 'sphinx', 'backports.shutil_get_terminal_size']},
+    extras_require={'dev': ['pytest-cov', 'pytest']},
     include_package_data=True,
     zip_safe=False
 )
