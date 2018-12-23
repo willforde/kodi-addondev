@@ -154,6 +154,8 @@ def process_dependencies(dependencies):  # type: (List[support2.Dependency]) -> 
     cached = {addon.id: addon for addon in cached_addons()}
     repo = Repo()
 
+    # TODO: inject the resource.language.en_gb requirement
+
     for dep in dependencies:
         # Download dependency if not already downloaded
         if dep.id not in cached or dep.version > cached[dep.id].version:

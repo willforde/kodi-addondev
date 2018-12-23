@@ -130,193 +130,9 @@ def setup_paths():
     return system_dir, addon_dir
 
 
-def find_addons(*dirs):
-    """
-    Search given directory for addons.
-
-    A folder is considered to be an addon, if it contains an 'addon.xml' file.
-
-    :param dirs: A list of directorys to scan.
-    """
-    filename = safe_path("addon.xml")
-    for path in dirs:
-        path = safe_path(path)
-        for item in os.listdir(path):
-            plugin_file = os.path.join(path, item, filename)
-            if os.path.exists(plugin_file):
-                yield ensure_unicode(plugin_file)
 
 
-def process_dependencies(deps):
-    download = []
-    for dep in deps:
-        # Check if we already have the dependency
-        if dep.id in avail_addons:
-            addon = avail_addons[dep.id]
-            # Check if the addon is a module
-            # Register the module path if so
-            addon.preload()
 
-            # Update the current set of dependencies
-            for sub_dep in addon.requires:
-                if sub_dep not in deps:
-                    deps.append(sub_dep)
-
-            # Check if the current cached addon is outdated
-            if dep.version > addon.version and dep not in download:
-                download.append(dep)
-        else:
-            download.append(dep)
-
-    repo = Repo()
-    if download:
-        repo.fetch(download)
-
-
-class Dependency(object):
-    __slots__ = ["id", "version", "optional"]
-
-    def __init__(self, addonid, version, optional):
-        self.id = addonid
-        self.version = version
-        self.optional = optional
-
-    def __eq__(self, other):
-        return other.id == self.id
-
-
-class Repo(object):
-    """Check the official kodi repositories for available addons."""
-
-    # Kodi version code names for repository linking
-    repo = "krypton"
-
-    def __init__(self):
-        self.repo_url = "http://mirrors.kodi.tv/addons/{}/{}".format(self.repo, "{}")
-        self._package_dir = kodi_paths["packages"]
-        self._addon_dir = kodi_paths["addons"]
-        self.db = {}
-
-        # Check if an update is scheduled
-        self.update_file = safe_path(os.path.join(kodi_paths["temp"], u"update_check"))
-        if self.update_required():
-            self.update()
-
-    @CacheProperty
-    def _session(self):
-        import requests
-        return requests.session()
-
-    def update_required(self, max_age=432000):
-        """Return True if its time to update."""
-        if os.path.exists(self.update_file):
-            update = (time.time() - os.stat(self.update_file).st_mtime) > max_age
-            if update:
-                # Reset the timestamp of the check file
-                os.utime(self.update_file, None)
-            return update
-        else:
-            # Create missing check file and force update
-            _open(self.update_file, "w").close()
-            return True
-
-    def populate(self):
-        """Search for all available addons."""
-        logger.info("Communicating with kodi's official repository: Please wait.")
-        url = self.repo_url.format("addons.xml")
-        raw_xml = self._session.get(url).content
-        addon_xml = ETree.fromstring(raw_xml)
-        for node in addon_xml.iterfind("addon"):
-            addonid = node.attrib["id"]
-            self.db[addonid] = Addon(node)
-
-    def update(self):
-        """Check if any cached plugins need updating."""
-        if not self.db:
-            self.populate()
-
-        requires = []
-        for addon in avail_addons.values():
-            # Add addon to requires list if cached addon is outdated
-            if addon.id in self.db and addon.version < self.db[addon.id].version:
-                requires.append(Dependency(addon.id, self.db[addon.id].version, False))
-
-        if requires:
-            self.fetch(requires)
-
-    def fetch(self, required):
-        """
-        Fetch any required addons.
-
-        :param list required: List of required dependencies."""
-        if not self.db:
-            self.populate()
-
-        # Process required addons befor downloading
-        for req_dep in required:
-            if req_dep.id in self.db:
-                addon = self.db[req_dep.id]
-
-                # Warn user if we are downloading an older version than what is required
-                if addon.version < req_dep.version:
-                    warnings.warn("required version is greater than whats available: need {} - have {}"
-                                  .format(req_dep.version, addon.version), RuntimeWarning)
-
-                # Check dependency of required addon
-                for dep in addon.requires:
-                    if dep not in required and dep.id not in avail_addons:
-                        required.append(dep)
-
-                # Now we download the addon
-                self.download(addon)
-
-            # Raise error only if addon is not actually required(optional)
-            elif req_dep.optional is False:
-                raise KeyError("unable to find required dependency: '{}'".format(req_dep.id))
-
-    def download(self, addon):
-        """
-        Download any requred addon
-
-        :param Addon addon: The addon to download
-        """
-        filename = u"{0}-{1}.zip".format(addon.id, addon.version)
-        tmp = os.path.join(self._package_dir, filename)
-        logger.info("Downloading: '{}'".format(filename.encode("utf8")))
-
-        # Remove old zipfile before download
-        # This will prevent an error if the addon was manually removed by user
-        if os.path.exists(tmp):
-            os.remove(tmp)
-
-        # Request the addon zipfile from server
-        url_part = "{0}/{1}".format(addon.id, filename)
-        url = self.repo_url.format(url_part)
-        resp = self._session.get(url)
-
-        # Read and save contents of zipfile to package directory
-        with _open(tmp, "wb") as stream:
-            for chunk in resp.iter_content(decode_unicode=False):
-                stream.write(chunk)
-
-        # Remove the old plugin directory if exists
-        # This is needed when updating addons
-        udst = os.path.join(self._addon_dir, addon.id)
-        sdst = safe_path(udst)
-        if os.path.exists(sdst):
-            shutil.rmtree(sdst)
-
-        resp.close()
-        self.extract_zip(tmp)
-
-        addon.path = udst
-        addon.preload()
-        avail_addons[addon.id] = addon
-
-    def extract_zip(self, src):
-        """Extract all content of zipfile to addon directoy."""
-        zipobj = zipfile.ZipFile(src)
-        zipobj.extractall(self._addon_dir)
 
 
 class Addon(object):
@@ -355,25 +171,8 @@ class Addon(object):
             if library_path not in sys.path:
                 sys.path.insert(0, library_path)
 
-        # Preload strings & settings
-        self.__dict__["settings"] = self._settings()
-        self.__dict__["strings"] = self._strings()
 
-    def _settings(self):
-        return Settings(self.path, self.profile)
 
-    @CacheProperty
-    def settings(self):
-        """The add-on settings file."""
-        return self._settings()
-
-    def _strings(self):
-        return Strings(self.path)
-
-    @CacheProperty
-    def strings(self):
-        """The add-on strings.po language file."""
-        return self._strings()
 
     @CacheProperty
     def entry_point(self):
@@ -383,46 +182,6 @@ class Addon(object):
             return None
         else:
             return data.attrib["library"][:-3]
-
-    @CacheProperty
-    def provides(self):
-        """
-        All list content that this addon provides e.g. video, audio.
-
-        :returns: A list of content providers
-        :rtype: list
-        """
-        data = self._xml.find("./extension[@point='xbmc.python.pluginsource']/provides")
-        if data is not None:
-            return [provider.strip() for provider in data.text.split(" ")]
-        else:
-            return []
-
-    @property
-    def requires(self):
-        """
-        All list of required plugins needed for this addon to work.
-
-        :returns: A list of Dependency objects consisting of (id, version, optional)
-        :rtype: list
-        """
-        return [Dependency(imp.attrib["addon"], imp.get("version", "0.0.1"), imp.get("optional", "false") == "true")
-                for imp in self._xml.findall("requires/import")]
-
-    @CacheProperty
-    def description(self):
-        """Addon description."""
-        return self._lang_type("description")
-
-    @CacheProperty
-    def disclaimer(self):
-        """Addon disclaimer."""
-        return self._lang_type("disclaimer")
-
-    @CacheProperty
-    def summary(self):
-        """Addon summary."""
-        return self._lang_type("summary")
 
     def _lang_type(self, name):
         """Extract and return the english language text."""
@@ -435,16 +194,6 @@ class Addon(object):
             return ""
         else:
             return node[0].text
-
-    @CacheProperty
-    def icon(self):
-        """Addon icon image path."""
-        return self._path_type("./assets/icon", u"icon.png")
-
-    @CacheProperty
-    def fanart(self):
-        """Addon fanart image path."""
-        return self._path_type("./assets/fanart", u"fanart.jpg")
 
     def _path_type(self, metapath, default):
         """Return the path to required file, e.g. fanart, icon."""

@@ -1,8 +1,6 @@
 # Standard Library Imports
-import unicodedata
 import hashlib
 import sys
-import re
 
 try:
     # noinspection PyUnresolvedReferences
@@ -102,32 +100,3 @@ def ensure_unicode(data, encoding="utf8"):
         return data.decode(encoding)
     else:
         return unicode_type(data)
-
-
-# Used by xbmc.makeLegalFilename
-def normalize_filename(filename):
-    """
-    Returns a legal filename or path as a string.
-
-    :param filename:
-    :type filename: str or unicode
-
-    :return: Legal filename or path as a string
-    :rtype: str
-    """
-    value = unicodedata.normalize('NFKD', ensure_unicode(filename)).encode("ascii", "ignore").decode("ascii")
-    value = re.sub('[^\w\s-]', '', value).strip().lower()
-    value = re.sub('[-\s]+', '-', value)
-    return ensure_native_str(value)
-
-
-# Used by xbmcgui.Dialog.input
-def hash_password(password):
-    """
-    Hash a giving password using md5 and return the hash value.
-
-    :param str password: The password to hash
-    :returns: The password as a md5 hash
-    :rtype: str
-    """
-    return hashlib.md5(password).hexdigest()
