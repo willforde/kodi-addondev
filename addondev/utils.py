@@ -1,5 +1,4 @@
 # Standard Library Imports
-import hashlib
 import sys
 
 try:
@@ -13,6 +12,12 @@ try:
     input_raw = raw_input
 except NameError:
     input_raw = input
+
+try:
+    import urllib.parse as urlparse
+except ImportError:
+    # noinspection PyUnresolvedReferences
+    import urlparse
 
 PY3 = sys.version_info >= (3, 0)
 # Unicode Type object, unicode on python2 or str on python3

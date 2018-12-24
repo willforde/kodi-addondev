@@ -5,6 +5,7 @@ import zipfile
 import shutil
 import time
 import json
+import sys
 import os
 
 # Third party imports
@@ -57,7 +58,7 @@ class Repo(object):
     def update_required(self):  # type: () -> bool
         """Return True if its time to update."""
         if os.path.exists(self.check_file):
-            with open(self.check_file, "r") as stream:
+            with open(self.check_file, "r", encoding="utf8") as stream:
                 timestamp = json.load(stream)
             return timestamp + MAX_AGE < time.time()
         else:
@@ -77,8 +78,8 @@ class Repo(object):
         # Create update-check file
         # with current timestamp
         timestamp = time.time()
-        with open(self.check_file, "w") as stream:
-            json.dump(stream, timestamp)
+        with open(self.check_file, "w", encoding="utf8") as stream:
+            json.dump(timestamp, stream)
 
     def download(self, dep):  # type: (Union[support2.Dependency, support2.Addon]) -> support2.Addon
         if dep.id not in self.db:
@@ -94,35 +95,37 @@ class Repo(object):
 
         filename = u"{}-{}.zip".format(addon.id, addon.version)
         filepath = os.path.join(PACKAGE_DIR, filename)
-        support2.logger.info("Downloading: '{}'".format(filename.encode("utf8")))
+        if os.path.exists(filepath):
+            support2.logger.info("Using cached package: '{}'".format(filename))
+        else:
+            support2.logger.info("Downloading: '{}'".format(filename))
+            # Remove old zipfiles before download, if any
+            self.cleanup(addon.id)
 
-        # Remove old zipfile before download
-        self.cleanup(addon.id)
+            # Request the addon zipfile from server
+            url_part = "{0}/{1}".format(addon.id, filename)
+            url = self.repo_url.format(url_part)
+            resp = self.session.get(url)
+
+            # Read and save contents of zipfile to package directory
+            try:
+                with open(filepath, "wb") as stream:
+                    for chunk in resp.iter_content(decode_unicode=False):
+                        stream.write(chunk)
+
+            except (OSError, IOError) as e:
+                self.cleanup(addon.id)
+                raise e
+
+            finally:
+                resp.close()
 
         # Remove the old addon directory if exists
         addon_dir = os.path.join(CACHE_DIR, addon.id)
         if os.path.exists(addon_dir):
             shutil.rmtree(addon_dir)
 
-        # Request the addon zipfile from server
-        url_part = "{0}/{1}".format(addon.id, filename)
-        url = self.repo_url.format(url_part)
-        resp = self.session.get(url)
-
-        # Read and save contents of zipfile to package directory
-        try:
-            with open(filepath, "wb") as stream:
-                for chunk in resp.iter_content(decode_unicode=False):
-                    stream.write(chunk)
-
-        except (OSError, IOError) as e:
-            self.cleanup(addon.id)
-            raise e
-
-        finally:
-            resp.close()
-
-        self.extract_zip(filename)
+        self.extract_zip(filepath)
         addon.path = addon_dir
         return addon
 
@@ -137,16 +140,18 @@ class Repo(object):
         """Remove all packages related to given addon id."""
         for filename in os.listdir(PACKAGE_DIR):
             if filename.startswith(addon_id):
-                filepath = os.path.join(PACKAGE_DIR, addon_id)
+                filepath = os.path.join(PACKAGE_DIR, filename)
                 os.remove(filepath)
 
 
 def cached_addons():  # type: () -> Iterator[support2.Addon]
     """Retrun List of already download addons."""
-    for filename in os.listdir(CACHE_DIR):
-        path = os.path.join(CACHE_DIR, filename, "addon.xml")
-        if os.path.exists(path):
-            yield support2.Addon.from_file(path)
+    builtin_cache = os.path.join(os.path.dirname(__file__), "data")
+    for addons_dir in (builtin_cache, CACHE_DIR):
+        for filename in os.listdir(addons_dir):
+            path = os.path.join(addons_dir, filename, "addon.xml")
+            if os.path.exists(path):
+                yield support2.Addon.from_file(path)
 
 
 def process_dependencies(dependencies):  # type: (List[support2.Dependency]) -> Iterator[support2.Addon]
@@ -154,19 +159,33 @@ def process_dependencies(dependencies):  # type: (List[support2.Dependency]) -> 
     cached = {addon.id: addon for addon in cached_addons()}
     repo = Repo()
 
-    # TODO: inject the resource.language.en_gb requirement
+    # Inject resource.language.en_gb requirement
+    dep = support2.Dependency("resource.language.en_gb", "1.0.0")
+    dependencies.append(dep)
+
+    # Reverse sys path to allow
+    # for faster list insertion
+    sys.path.reverse()
 
     for dep in dependencies:
+        support2.logger.info("Processing Dependency: %s", dep.id)
         # Download dependency if not already downloaded
         if dep.id not in cached or dep.version > cached[dep.id].version:
             addon = repo.download(dep)
         else:
             addon = cached[dep.id]
 
-        addon.setup_paths()
+        if addon.type == "xbmc.python.module":
+            path = os.path.join(addon.path, os.path.normpath(addon.library))
+            sys.path.append(path)
+
         # Check if the dependency has dependencies
         for extra_dep in addon.dependencies:
             if extra_dep not in dependencies:
                 dependencies.append(extra_dep)
 
         yield addon
+
+    # Reverse the path list again
+    # to change it back to normal
+    sys.path.reverse()

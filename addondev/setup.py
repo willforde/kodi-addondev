@@ -6,7 +6,7 @@ import sys
 import os
 
 # Package imports
-from addondev import repo, support2
+from addondev import repo, support2, tesseract
 
 
 def initializer(addon_path):
@@ -23,16 +23,14 @@ def initializer(addon_path):
     xml_path = os.path.join(addon_path, "addon.xml")
     if os.path.exists(xml_path):
         addon = support2.Addon.from_file(xml_path)
+        os.chdir(addon.path)
     else:
         raise ValueError("'{}' is not a valid kodi addon, missing 'addon.xml'".format(addon_path))
 
     # Download required dependencies
-    addons = list(repo.process_dependencies(addon.dependencies))
-    addons.append(addon)
+    addons = repo.process_dependencies(addon.dependencies)
 
+    import xbmc
     # Setup environment
-
     sys.argv = ["plugin://{}".format(addon.id), -1, ""]
-    if addon.type == "xbmc.python.pluginsource":
-        sys.path.insert(0, addon.path)
-    else
+    xbmc.session = tesseract.Dataset(addon, addons)

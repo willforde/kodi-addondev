@@ -1,6 +1,6 @@
 # Standard Library Imports
 from collections import OrderedDict
-from typing import Iterator, Tuple, Dict
+from typing import Iterator, Tuple, Dict, List
 import tempfile
 import logging
 import shutil
@@ -20,13 +20,12 @@ try:
 except ImportError:
     import xml.etree.ElementTree as ETree
 
-
 # Python 2 compatibility
 if not utils.PY3:
     from codecs import open
 
 # Base logger
-logger = logging.getLogger("cli")
+logger = logging.getLogger("kodi-addondev")
 handler = logging.StreamHandler(stream=sys.stdout)
 handler.setFormatter(logging.Formatter("%(relativeCreated)-13s %(levelname)7s: %(message)s"))
 logger.addHandler(handler)
@@ -89,8 +88,9 @@ class Addon(object):
         # Parse base info
         self._xml = xml_node
         self._data = data = xml_node.attrib.copy()
-        data["author"] = data.pop("provider-name")
+        data["author"] = data.pop("provider-name", "")
         data["profile"] = self.profile = os.path.join(KODI_PATHS["userdata"], data["id"])
+        data["type"] = data["library"] = data["provides"] = ""
         data["path"] = self.path = path
 
         # Parse entry point
@@ -101,36 +101,44 @@ class Addon(object):
                 data["library"] = ext.get("library")
                 data["provides"] = ext[0].text if len(ext) else ""
                 break
-        else:
-            raise RuntimeError("unspoorted addon type")
-
-        # Parse dependencies
-        data["requires"] = requires = []
-        for imp in xml_node.findall("requires/import"):
-            addon_id = imp.get("addon")
-            if addon_id not in IGNORE_LIST:
-                dep = Dependency(addon_id, imp.get("version"), imp.get("optional", "false") == "true")
-                requires.append(dep)
 
         # Presets
         self.id = data["id"]
         self.version = data["version"]
-        self.dependencies = requires
         self.type = data["type"]
+        self.library = data["library"]
+
+    @property
+    def dependencies(self):  # type: () -> List[Dependency]
+        if "requires" in self._data:
+            return self._data["requires"]
+        else:
+            # Parse dependencies
+            self._data["requires"] = requires = []
+            for imp in self._xml.findall("requires/import"):
+                addon_id = imp.get("addon")
+                if addon_id not in IGNORE_LIST:
+                    dep = Dependency(addon_id, imp.get("version"), imp.get("optional", "false") == "true")
+                    requires.append(dep)
+
+            return requires
 
     def preload(self):  # type: () -> Dict
+        # TODO: Add code to handle language = en-gb
         # Parse metadata
         self._data["metadata"] = metadata = {"assets": {}}
-        for node in self._xml.find("./extension[@point='xbmc.addon.metadata']"):
-            if node.tag == "assets":
-                metadata[node.tag] = assets = {sub.tag: sub.text for sub in node}
-                if "screenshot" in assets:
-                    assets["screenshot"] = [sshot.text for sshot in node.findall("screenshot")]
-            elif node.text is not None:
-                metadata[node.tag] = node.text
+        node = self._xml.find("./extension[@point='xbmc.addon.metadata']")
+        if node is not None:
+            for elem in node:
+                if elem.tag == "assets":
+                    metadata[elem.tag] = assets = {sub.tag: sub.text for sub in elem}
+                    if "screenshot" in assets:
+                        assets["screenshot"] = [sshot.text for sshot in elem.findall("screenshot")]
+                elif elem.text is not None:
+                    metadata[elem.tag] = elem.text
 
-        # Map changelog to news
-        metadata["changelog"] = metadata.get("news", "")
+            # Map changelog to news
+            metadata["changelog"] = metadata.get("news", "")
 
         # Preload strings & settings
         self._data["settings"] = dict(self._settings())  # type: Dict[str, str]
@@ -157,7 +165,7 @@ class Addon(object):
         for path in string_loc:
             if os.path.exists(path):
                 # Extract the strings from the strings.po file
-                with open(path, "r", "utf-8") as stream:
+                with open(path, "r", encoding="utf-8") as stream:
                     file_data = stream.read()
 
                 # Populate dict of strings

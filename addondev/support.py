@@ -174,15 +174,6 @@ class Addon(object):
 
 
 
-    @CacheProperty
-    def entry_point(self):
-        """Return the library entry poin."""
-        data = self._xml.find("./extension[@point='xbmc.python.pluginsource']")
-        if data is None:
-            return None
-        else:
-            return data.attrib["library"][:-3]
-
     def _lang_type(self, name):
         """Extract and return the english language text."""
         node = self._metadata.findall(name)
