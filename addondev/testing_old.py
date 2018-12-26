@@ -3,7 +3,7 @@ import xbmcaddon
 import xbmcgui
 import xbmc
 
-from addondev.support import data_log, plugin_data
+from addondev.support_old import data_log, plugin_data
 
 from copy import deepcopy as _deepcopy
 

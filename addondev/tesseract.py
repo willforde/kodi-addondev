@@ -1,16 +1,18 @@
 # Standard Library Imports
-from typing import Iterator, Dict
-from xml.dom import minidom
+from typing import Dict
 import logging
+import sys
 import os
 
-# Package imports
-from addondev import support2, utils
-from addondev.support2 import ETree, KODI_PATHS
+try:
+    import urllib.parse as urlparse
+except ImportError:
+    # noinspection PyUnresolvedReferences
+    import urlparse
 
-# Python 2 compatibility
-if not utils.PY3:
-    from codecs import open
+# Package imports
+from addondev import repo, utils
+from addondev.support import Addon, logger, KODI_PATHS
 
 # Kodi log levels
 log_levels = (logging.DEBUG,  # xbmc.LOGDEBUG
@@ -24,28 +26,59 @@ log_levels = (logging.DEBUG,  # xbmc.LOGDEBUG
 
 
 class Dataset(object):
-    def __init__(self, addon, addons):  # type: (support2.Addon, Iterator[support2.Addon]) -> None
-        self.addons = {dep.id: dep.preload() for dep in addons}  # type: Dict[str, dict]
-        self.addons[addon.id] = addon.preload()
+    """
+    Process running addon and all it's dependencies.
+
+    :param str addon_path: Path to the add-on.
+    :param list repos: List of unofficial kodi repos to use.
+    """
+
+    def __init__(self, addon_path, repos):
+        # Add custom kodi repos to repo list
+        if repos:
+            repo.REPOS.extend(repos)
+
+        # Load the given addon path, raise ValueError if addon is not valid
+        xml_path = os.path.join(addon_path, "addon.xml")
+        if os.path.exists(xml_path):
+            addon = Addon.from_file(xml_path)
+        else:
+            raise ValueError("'{}' is not a valid kodi addon, missing 'addon.xml'".format(addon_path))
+
+        # Reverse sys path to allow
+        # for faster list insertion
+        sys.path.reverse()
+
         self.id = addon.id
-        self.data = {}
+        self.addons = {addon.id: addon.preload()}  # type: Dict[str, Addon]
 
-    def __contains__(self, item):
-        return item in self.addons
+        # Process all dependencies and download any missing dependencies
+        for dep in repo.process_dependencies(addon.dependencies):
+            self.addons[dep.id] = dep.preload()
 
-    def get_addon(self, addon_id):  # type: (str) -> Addon
-        data = self.addons[addon_id]
-        return Addon(data)
+            if dep.type == "xbmc.python.module":
+                path = os.path.join(dep.path, os.path.normpath(dep.library))
+                sys.path.append(path)
+
+        # Reverse the path list again
+        # to change it back to normal
+        sys.path.reverse()
+
+    def __contains__(self, addon_id):
+        return addon_id in self.addons
+
+    def get_addon(self, addon_id=None):  # type: (str) -> Addon
+        return self.addons[addon_id if self.addons[addon_id] else self.id]
 
     @staticmethod
     def log(lvl, msg):  # type: (int, str) -> None
         lvl = log_levels[lvl]
-        support2.logger.log(lvl, msg)
+        logger.log(lvl, msg)
 
     @staticmethod
     def translate_path(path):  # type: (str) -> str
         path = utils.ensure_native_str(path)
-        parts = utils.urlparse.urlsplit(path)
+        parts = urlparse.urlsplit(path)
 
         # Return the path unmodified if not a special path
         if not parts.scheme == "special":
@@ -55,72 +88,9 @@ class Dataset(object):
         special_path = parts.netloc
 
         # Fetch realpath from the path mapper
-        realpath = KODI_PATHS.get(special_path, None)
-        if realpath is None:
+        try:
+            realpath = KODI_PATHS[special_path]
+        except KeyError:
             raise ValueError("%s is not a valid root dir" % special_path)
         else:
             return os.path.join(realpath, os.path.normpath(parts.path))
-
-
-class Addon(object):
-    def __init__(self, data):
-        self._data = data
-
-    def get_info(self, item):  # type: (str) -> str
-        """Returns the value of an addon property as a string."""
-        if item in self._data:
-            value = self._data[item]
-        elif item in self._data["metadata"]:
-            value = self._data["metadata"][item]
-        elif item in self._data["metadata"]["assets"]:
-            value = self._data["metadata"]["assets"][item]
-            value = os.path.join(self._data["path"], os.path.normpath(value))
-        else:
-            return str()
-
-        # Make sure that we always return the native str
-        # type of the running python version
-        return utils.ensure_native_str(value)
-
-    def set_setting(self, key, value):
-        if not isinstance(value, (bytes, utils.unicode_type)):
-            raise TypeError("argument 'value' for method 'setSetting' must be unicode or str not '%s'" % type(value))
-
-        spath = os.path.join(self._data["profile"], "settings.xml")
-        if os.path.exists(spath):
-            # Load in settings xml object
-            tree = ETree.parse(spath).getroot()
-
-            # Check for a pre existing setting for given key and remove it
-            pre_existing = tree.find("./setting[@id='%s']" % key)
-            if pre_existing is not None:
-                tree.remove(pre_existing)
-
-        else:
-            # Create plugin data directory if don't exist
-            settings_dir = os.path.dirname(spath)
-            if not os.path.exists(settings_dir):
-                os.makedirs(settings_dir)
-
-            # Create settings xml object
-            tree = ETree.Element("settings")
-
-        # Add setting to list of xml elements
-        ETree.SubElement(tree, "setting", {"id": key, "value": value})
-
-        # Recreate the settings.xml file
-        raw_xml = minidom.parseString(ETree.tostring(tree)).toprettyxml(indent=" "*4)
-        with open(spath, "w", encoding="utf8") as stream:
-            stream.write(raw_xml)
-
-        # Update local store and return
-        self._data["settings"][id] = value
-        return True
-
-    @property
-    def strings(self):
-        return self._data["strings"]
-
-    @property
-    def settings(self):
-        return self._data["settings"]

@@ -7,9 +7,9 @@ import sys
 import os
 
 # Package imports
-from addondev.interactive import interactive
+from addondev.interactive_old import interactive
 from addondev.utils import safe_path, ensure_unicode
-from addondev.support import logger, Repo
+from addondev.support_old import logger, Repo
 
 # Create Parser to parse the required arguments
 parser = ArgumentParser(description="Execute kodi plugin")

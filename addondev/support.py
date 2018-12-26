@@ -1,338 +1,280 @@
-# -*- coding: utf-8 -*-
-from __future__ import print_function
-
 # Standard Library Imports
-from xml.etree import ElementTree as ETree
-from collections import Mapping, OrderedDict
-from codecs import open as _open
+from typing import Iterator, Tuple, List
+import xml.etree.ElementTree as ETree
+from collections import OrderedDict
 from xml.dom import minidom
-import warnings
+import tempfile
 import logging
-import zipfile
 import shutil
-import time
 import sys
-import os
 import re
+import os
 
 # Third party imports
 import appdirs
 
-# Package Imports
-from addondev.utils import CacheProperty, ensure_unicode, ensure_native_str, safe_path, unicode_type
+# Package imports
+from addondev import utils
+
+IGNORE_LIST = ("xbmc.python", "xbmc.core", "kodi.resource")
+EXT_POINTS = ("xbmc.python.pluginsource", "xbmc.python.module")
 
 # Base logger
-logger = logging.getLogger("cli")
+logger = logging.getLogger("kodi-addondev")
 handler = logging.StreamHandler(stream=sys.stdout)
 handler.setFormatter(logging.Formatter("%(relativeCreated)-13s %(levelname)7s: %(message)s"))
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
-# Dictionary of available addons
-kodi_paths = OrderedDict()
-avail_addons = dict()
-data_pipe = None
-plugin_id = ""
+# Kodi directory paths
+KODI_PATHS = OrderedDict()
+# TODO: Add a way to force a clean root or resue old root
+KODI_PATHS["home"] = tempfile.mkdtemp(prefix="kodi-addondev.")
+KODI_PATHS["home"] = home = "/tmp/kodi-addondev"
+KODI_PATHS["userdata"] = userdata = os.path.join(home, "userdata")
+KODI_PATHS["addon_data"] = os.path.join(userdata, "addon_data")
+KODI_PATHS["temp"] = os.path.join(home, "temp")
+KODI_PATHS["addons"] = cache_dir = appdirs.user_cache_dir("kodi-addondev")
+KODI_PATHS["packages"] = os.path.join(cache_dir, "packages")
 
-# Data store for addon. Use in xbmcplugin and xbmcgui
-plugin_data = {"succeeded": False, "updatelisting": False, "resolved": None, "contenttype": None,  "category": None,
-               "sortmethods": [], "playlist": [], "listitem": []}
+# Ensure that there are no leftover temp directorys
+tmpdir = os.path.dirname(home)
+for filename in os.listdir(tmpdir):
+    if filename.startswith("kodi-addondev."):
+        filepath = os.path.join(tmpdir, filename)
+        shutil.rmtree(filepath, ignore_errors=True)
 
-# Region settings. Used by xbmc.getRegion
-region_settings = {"datelong": "%A, %d %B %Y", "dateshort": "%d/%m/%Y",
-                   "time": "%H:%M:%S", "meridiem": "PM", "speedunit": "km/h"}
-
-# Dict of supported media types that kodi is able to play. Used by xbmc.getSupportedMedia
-supported_media = {"video": ".m4v|.3g2|.3gp|.nsv|.tp|.ts|.ty|.strm|.pls|.rm|.rmvb|.mpd|.m3u|.m3u8|.ifo|.mov|.qt|.divx"
-                            "|.xvid|.bivx|.vob|.nrg|.img|.iso|.pva|.wmv|.asf|.asx|.ogm|.m2v|.avi|.bin|.dat|.mpg|.mpeg"
-                            "|.mp4|.mkv|.mk3d|.avc|.vp3|.svq3|.nuv|.viv|.dv|.fli|.flv|.rar|.001|.wpl|.zip|.vdr|.dvr"
-                            "-ms|.xsp|.mts|.m2t|.m2ts|.evo|.ogv|.sdp|.avs|.rec|.url|.pxml|.vc1|.h264|.rcv|.rss|.mpls"
-                            "|.webm|.bdmv|.wtv|.pvr|.disc",
-                   "music": ".nsv|.m4a|.flac|.aac|.strm|.pls|.rm|.rma|.mpa|.wav|.wma|.ogg|.mp3|.mp2|.m3u|.gdm|.imf"
-                            "|.m15|.sfx|.uni|.ac3|.dts|.cue|.aif|.aiff|.wpl|.ape|.mac|.mpc|.mp+|.mpp|.shn|.zip|.rar"
-                            "|.wv|.dsp|.xsp|.xwav|.waa|.wvs|.wam|.gcm|.idsp|.mpdsp|.mss|.spt|.rsd|.sap|.cmc|.cmr|.dmc"
-                            "|.mpt|.mpd|.rmt|.tmc|.tm8|.tm2|.oga|.url|.pxml|.tta|.rss|.wtv|.mka|.tak|.opus|.dff|.dsf"
-                            "|.cdda",
-                   "picture": ".png|.jpg|.jpeg|.bmp|.gif|.ico|.tif|.tiff|.tga|.pcx|.cbz|.zip|.cbr|.rar|.rss|.webp"
-                              "|.jp2|.apng"}
-
-data_log = {"notifications": []}
+# Ensure that all directories exists
+for kodi_path in KODI_PATHS.values():
+    if not os.path.exists(kodi_path):
+        os.makedirs(kodi_path)
 
 
-def initializer(plugin_path):
-    """
-    Setup & initialize the mock kodi environment.
+class Dependency(object):
+    """Dataclass of addon dependencies."""
+    __slots__ = ("id", "version", "optional")
 
-    :param plugin_path: The path to the plugin that will be executed.
-    """
-    global plugin_id
-    system_dir, addon_dir = setup_paths()
-    plugin_id = os.path.basename(plugin_path)
-    sys.argv = ["plugin://{}".format(plugin_id), -1, ""]
+    # noinspection PyShadowingBuiltins
+    def __init__(self, id, version, optional=False):  # type: (str, str, bool) -> None
+        self.optional = optional
+        self.version = version
+        self.id = id
 
-    # First available addon with be the starting plugin
-    avail_addons[plugin_id] = addon = Addon.from_file(os.path.join(plugin_path, u"addon.xml"))
-    sys.path.insert(0, plugin_path)
-    os.chdir(plugin_path)
-    addon.preload()
+    def __eq__(self, other):
+        return other.id == self.id
 
-    # Preload all existing addons
-    for plugin_file in find_addons(system_dir, addon_dir):
-        req_addon = Addon.from_file(plugin_file)
-        avail_addons[req_addon.id] = req_addon
-
-    # Populate mock environment of required addons
-    dependencies = addon.requires
-    dependencies.append(Dependency("resource.language.en_gb", "2.0.0", False))
-    process_dependencies(dependencies)
-    return addon
-
-
-def setup_paths():
-    # Location of support files
-    system_dir = os.path.join(ensure_unicode(os.path.dirname(__file__), sys.getfilesystemencoding()), u"data")
-    kodi_paths["support"] = system_dir
-
-    # Kodi path structure
-    kodi_paths["home"] = home = appdirs.user_cache_dir(u"kodi_mock")
-    kodi_paths["addons"] = addon_dir = os.path.join(home, u"addons")
-    kodi_paths["packages"] = os.path.join(addon_dir, u"packages")
-    kodi_paths["temp"] = temp_dir = os.path.join(home, u"temp")
-    kodi_paths["system"] = os.path.join(home, u"system")
-    kodi_paths["profile"] = userdata = os.path.join(home, u"userdata")
-    kodi_paths["data"] = os.path.join(userdata, u"addon_data")
-    kodi_paths["database"] = os.path.join(userdata, u"Database")
-    kodi_paths["thumbnails"] = os.path.join(userdata, u"Thumbnails")
-    kodi_paths["playlists"] = playlists = os.path.join(userdata, u"playlists")
-    kodi_paths["musicplaylists"] = os.path.join(playlists, u"music")
-    kodi_paths["videoplaylists"] = os.path.join(playlists, u"video")
-
-    # Ensure that all directories exists
-    for path in kodi_paths.values():
-        path = safe_path(path)
-        if not os.path.exists(path):
-            os.makedirs(path)
-
-    # Rest of kodi's special paths
-    kodi_paths["logpath"] = os.path.join(temp_dir, u"kodi.log")
-    kodi_paths["masterprofile"] = userdata
-    kodi_paths["masterprofile"] = userdata
-    kodi_paths["userdata"] = userdata
-    kodi_paths["subtitles"] = temp_dir
-    kodi_paths["recordings"] = temp_dir
-    kodi_paths["screenshots"] = temp_dir
-    kodi_paths["cdrips"] = temp_dir
-    kodi_paths["skin"] = temp_dir
-    kodi_paths["xbmc"] = home
-
-    # Return the support system directory and addon directory
-    return system_dir, addon_dir
-
-
-
-
-
+    def repr(self):
+        return "Dependency(id={}, version={}, optional={})".format(self.id, self.version, self.optional)
 
 
 class Addon(object):
-    """
-    Add-on Information.
+    @classmethod
+    def from_file(cls, xml_path):  # type: (str) -> Addon
+        """Load addon data from addon.xml"""
+        xml_node = ETree.parse(xml_path).getroot()
+        return cls(xml_node, os.path.dirname(xml_path))
 
-    :ivar str id: The add-on id.
-    :ivar str name: The add-on name.
-    :ivar str author: The add-on author.
-    :ivar str version: The add-on version.
-    :ivar str path: The path to the add-on source directory.
-    :ivar str profile: The path to the add-on profile data directory.
-    """
-
-    def __init__(self, xml_node):
+    def __init__(self, xml_node, path=""):  # type: (ETree.Element, str) -> None
+        self.settings = self.strings = None
         self._xml = xml_node
-        self.stars = u"-1"
+        self.path = path
+        self.stars = -1
 
-        # Extract required data from addon.xml
-        self.id = xml_node.attrib["id"]
-        self.name = xml_node.get("name", "")
-        self.version = xml_node.attrib["version"]
-        self.author = xml_node.get("provider-name", "")
+        # Parse entry point
+        self.type = ""
+        for ext in self._xml.findall("extension"):
+            point = ext.get("point")
+            if point in EXT_POINTS:
+                self.type = point
+                break
 
-        # The metadata of the add-on
-        self._metadata = self._xml.find("./extension[@point='xbmc.addon.metadata']")
-        self.profile = os.path.join(kodi_paths["data"], self.id)
-        self.path = u""
+    @property
+    def id(self):  # type: () -> str
+        return self._xml.get("id")
 
-    def preload(self):
-        """Preload addon data e.g. strings, settings."""
-        # Append addon library path to sys.path if addon is a module.
-        data = self._xml.find("./extension[@point='xbmc.python.module']")
-        if data is not None:
-            library_path = ensure_native_str(os.path.join(self.path, os.path.normpath(data.attrib["library"])))
-            if library_path not in sys.path:
-                sys.path.insert(0, library_path)
+    @property
+    def version(self):  # type: () -> str
+        return self._xml.get("version")
 
+    @property
+    def author(self):  # type: () -> str
+        return self._xml.get("provider-name", "")
 
+    @property
+    def name(self):  # type: () -> str
+        return self._xml.get("name")
 
+    @property
+    def profile(self):  # type: () -> str
+        return os.path.join(KODI_PATHS["userdata"], self.id)
 
-    def _lang_type(self, name):
-        """Extract and return the english language text."""
-        node = self._metadata.findall(name)
-        for data in node:
-            if data.get("lang", "en").lower().startswith("en"):
-                return data.text
+    @property
+    def description(self):  # type: () -> str
+        return self._text_lang("description")
 
-        if node is None or len(node) == 0:
+    @property
+    def disclaimer(self):  # type: () -> str
+        return self._text_lang("disclaimer")
+
+    @property
+    def summary(self):  # type: () -> str
+        return self._text_lang("summary")
+
+    def _text_lang(self, name):  # type: (str) -> str
+        # Attemp to find elements with en_GB first then fallback to en_US if not found.
+        for lang_opt in ("en_GB", "en_US", "en"):
+            node = self._xml.find("./extension/{0}[@lang='{1}']".format(name, lang_opt))
+            if node is not None:
+                return node.text
+
+        # Fallback to the first match and return that
+        node = self._xml.find("./extension/{0}".format(name))
+        if node is not None:
+            return node.text
+        else:
+            return ""
+
+    @property
+    def fanart(self):  # type: () -> str
+        return self._asset("fanart")
+
+    @property
+    def icon(self):  # type: () -> str
+        return self._asset("icon")
+
+    def _asset(self, name):  # type: (str) -> str
+        asset = self._xml.find("extension/assets/{}".format(name))
+        if asset is None:
             return ""
         else:
-            return node[0].text
+            return os.path.join(self.path, os.path.normpath(asset.text))
 
-    def _path_type(self, metapath, default):
-        """Return the path to required file, e.g. fanart, icon."""
-        path = self._metadata.find(metapath)
-        if path is None:
-            return os.path.join(self.path, default)
+    @property
+    def changelog(self):  # type: () -> str
+        news = self._xml.find("extension/news")
+        if news is not None:
+            return news.text.strip()
         else:
-            return os.path.join(self.path, os.path.normpath(path.text))
-
-    @CacheProperty
-    def changelog(self):
-        data = self._metadata.findall("news")
-        if data is not None:
-            return data.text
-        else:
-            changelog_file = safe_path(os.path.join(self.path, u"changelog-{}.txt".format(self.version)))
+            changelog_file = os.path.join(self.path, "changelog-{}.txt".format(self.version))
             if os.path.exists(changelog_file):
-                with _open(changelog_file, "r", "utf8") as stream:
-                    return stream.read()
+                with open(changelog_file, "r", encoding="utf8") as stream:
+                    return stream.read().strip()
             else:
                 return ""
 
-    @CacheProperty
-    def type(self):
-        """Addon type."""
-        # Search for all extensions that are not metadat and hope that what is left is what we want
-        exts = [ext for ext in self._xml.findall("extension") if ext is not self._metadata]
-        if exts:
-            return exts[0].get("point")
-        else:
-            return ""
+    def get_info(self, name):  # type: (str) -> str
+        """Returns the value of an addon property as a string."""
+        value = getattr(self, name, "")
+        return utils.ensure_native_str(value)
 
-    @classmethod
-    def from_file(cls, xml_path):
-        xmldata = ETree.parse(safe_path(xml_path)).getroot()
-        obj = cls(xmldata)
-        obj.path = os.path.dirname(xml_path)
-        return obj
+    @property
+    def dependencies(self):  # type: () -> List[Dependency]
+        dependencies = []
+        for imp in self._xml.findall("requires/import"):
+            addon_id = imp.get("addon")
+            if addon_id not in IGNORE_LIST:
+                dep = Dependency(addon_id, imp.get("version"), imp.get("optional", "false") == "true")
+                dependencies.append(dep)
+        return dependencies
 
-    def __eq__(self, other):
-        return other == self.id
+    def preload(self):  # type: () -> Addon
+        """
+        Preload the setting & strings into memory.
+        This is done to minimize overheads within the addon.
+        """
+        if self.settings is None:
+            self.settings = dict(self._settings())
+        if self.strings is None:
+            self.strings = dict(self._strings())
+        return self
 
-    def __str__(self):
-        return str(self.id)
+    def _settings(self):  # type: () -> Iterator[Tuple[str, str]]
+        # Populate settings from both addon source settings and addon saved profile settings file
+        spaths = (os.path.join(self.path, "resources", "settings.xml"), os.path.join(self.profile, "settings.xml"))
+        for settings_path in spaths:
+            if os.path.exists(settings_path):
+                xmldata = ETree.parse(settings_path).getroot()
+                for setting in xmldata.findall(".//setting"):
+                    yield setting.get("id"), setting.get("value", setting.get("default", ""))
 
-    def __repr__(self):
-        return "Addon(id={})".format(self.id)
-
-
-class Strings(Mapping):
-    def __init__(self, plugin_path):
-        self._strings = {}
-
-        # Locate and extract stirngs data
-        self._search_strings(os.path.join(plugin_path, "resources"))
-
-    def _search_strings(self, resources_path):
+    def _strings(self):  # type: () -> Iterator[Tuple[int, str]]
         # Possible locations for english strings.po
-        string_loc = [os.path.join(resources_path, "strings.po"),
-                      os.path.join(resources_path, "language", "English", "strings.po"),
-                      os.path.join(resources_path, "language", "resource.language.en_gb", "strings.po"),
-                      os.path.join(resources_path, "language", "resource.language.en_us", "strings.po")]
+        res_path = os.path.join(self.path, "resources")
+        string_loc = [os.path.join(res_path, "language", "resource.language.en_gb", "strings.po"),
+                      os.path.join(res_path, "language", "resource.language.en_us", "strings.po"),
+                      os.path.join(res_path, "language", "English", "strings.po"),
+                      os.path.join(res_path, "strings.po")]
 
         # Return the first strings.po file that is found
         for path in string_loc:
-            path = safe_path(path)
             if os.path.exists(path):
-                return self._extractor(path)
+                # Extract the strings from the strings.po file
+                with open(path, "r", encoding="utf-8") as stream:
+                    file_data = stream.read()
 
-        # Unable to find a strings.po file
-        # Search for any strings.po file
-        strtext = safe_path("strings.po")
-        for root, _, files in os.walk(safe_path(os.path.join(resources_path, "language"))):
-            if strtext in files:
-                return self._extractor(os.path.join(root, strtext))
+                # Populate dict of strings
+                search_pattern = 'msgctxt\s+"#(\d+)"\s+msgid\s+"(.+?)"\s+msgstr\s+"(.*?)'
+                for strID, msgID, msStr in re.findall(search_pattern, file_data):
+                    yield int(strID), msStr if msStr else msgID
 
-    def _extractor(self, strings_path):
-        """Extract the strings from the strings.po file"""
-        with _open(strings_path, "r", "utf-8") as stream:
-            file_data = stream.read()
+    def switch_dir(self):  # type: () -> str
+        """
+        Switch to the source directory for this addon.
+        Return the source file to import if this addon is a pluginsource.
+        """
+        if self.type == "xbmc.python.pluginsource":
+            os.chdir(self.path)
+            return self.library.rstrip(".py")
+        elif self.type == "xbmc.python.module":
+            path = os.path.join(self.path, os.path.normpath(self.library))
+            os.chdir(path)
 
-        # Populate dict of strings
-        search_pattern = 'msgctxt\s+"#(\d+)"\s+msgid\s+"(.+?)"\s+msgstr\s+"(.*?)'
-        for strID, msgID, msStr in re.findall(search_pattern, file_data):
-            self._strings[int(strID)] = msStr if msStr else msgID
+    @property
+    def library(self):  # type: () -> str
+        """Return The library value for the given addon point."""
+        node = self._xml.find("extension[@point='{}']".format(self.type))
+        if node is not None:
+            return node.attrib["library"]
+        else:
+            raise RuntimeError("library parmeter is missing from extension point")
 
-    def __getitem__(self, key):
-        return ensure_unicode(self._strings.get(key, u""))
-
-    def __iter__(self):
-        return iter(self._strings)
-
-    def __len__(self):
-        return len(self._strings)
-
-
-class Settings(dict):
-    def __init__(self, plugin_path, plugin_profile):
-        super(Settings, self).__init__()
-
-        # Populate settings from the addon source settings file
-        settings_path = safe_path(os.path.join(plugin_path, "resources", "settings.xml"))
-        if os.path.exists(settings_path):
-            xmldata = ETree.parse(settings_path).getroot()
-            self._extractor(xmldata)
-
-        # Populate settings from the addon saved profile settings file
-        self._settings_path = settings_path = safe_path(os.path.join(plugin_profile, "settings.xml"))
-        if os.path.exists(settings_path):
-            xmldata = ETree.parse(settings_path).getroot()
-            self._extractor(xmldata)
-
-    def _extractor(self, xmldata):
-        """Extract the strings from the strings.po file"""
-        for setting in xmldata.findall(".//setting"):
-            setting_id = setting.get("id")
-            if setting_id:
-                super(Settings, self).__setitem__(setting_id, setting.get("value", setting.get("default", "")))
-
-    def __getitem__(self, item):
-        return ensure_unicode(self.get(item, u""))
-
-    def __setitem__(self, key, value):
-        """Set an add-on setting."""
-        if not isinstance(value, (bytes, unicode_type)):
+    def set_setting(self, key, value):
+        if not isinstance(value, (bytes, utils.unicode_type)):
             raise TypeError("argument 'value' for method 'setSetting' must be unicode or str not '%s'" % type(value))
 
-        # Save setting to local dict before saving to disk
-        super(Settings, self).__setitem__(key, value)
+        path = os.path.join(self.profile, "settings.xml")
+        if os.path.exists(path):
+            # Load in settings xml object
+            tree = ETree.parse(path).getroot()
 
-        # The easyest way to store the setting is to store all setting
-        tree = ETree.Element("settings")
-        for key, value in self.items():
-            ETree.SubElement(tree, "setting", {"id": key, "value": value})
+            # Check for a pre existing setting for given key and remove it
+            pre_existing = tree.find("./setting[@id='%s']" % key)
+            if pre_existing is not None:
+                tree.remove(pre_existing)
 
-        # Create plugin data directory if don't exist
-        settings_dir = os.path.dirname(self._settings_path)
-        if not os.path.exists(settings_dir):
-            os.makedirs(settings_dir)
+        else:
+            # Create plugin data directory if don't exist
+            settings_dir = os.path.dirname(path)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir)
 
-        raw_xml = minidom.parseString(ETree.tostring(tree)).toprettyxml(indent=" "*4, encoding="utf8")
-        with _open(self._settings_path, "wb") as stream:
+            # Create settings xml object
+            tree = ETree.Element("settings")
+
+        # Add setting to list of xml elements
+        ETree.SubElement(tree, "setting", {"id": key, "value": value})
+
+        # Recreate the settings.xml file
+        raw_xml = minidom.parseString(ETree.tostring(tree)).toprettyxml(indent=" "*4)
+        with open(path, "w", encoding="utf8") as stream:
             stream.write(raw_xml)
 
+        # Update local store and return
+        self.settings[key] = value
 
-def handle_prompt(prompt):
-    if data_pipe:
-        data_pipe.send({"prompt": prompt})
-        return data_pipe.recv()
-    else:
-        return input(prompt)
+    def __eq__(self, other):
+        return other.id == self.id
+
+    def __repr__(self):
+        return "Addon(id={})".format(self.id)

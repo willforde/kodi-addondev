@@ -21,7 +21,7 @@ except ImportError:
 
 # Package imports
 from addondev.utils import input_raw, ensure_native_str, unicode_type
-from addondev import support
+from addondev import support_old
 
 
 def interactive(pluginpath, preselect=None, content_type="video", compact_mode=False, no_crop=False):
@@ -124,8 +124,8 @@ def subprocess(pipe_send, pluginpath, callback_url, content_type):
     :param str callback_url: The url containing the route path and callback params.
     :param str content_type: The content type to list, if more than one type is available.
     """
-    addon_data = support.initializer(pluginpath)
-    support.data_pipe = pipe_send
+    addon_data = support_old.initializer(pluginpath)
+    support_old.data_pipe = pipe_send
 
     # Splits callback into it's individual components
     scheme, pluginid, selector, params, _ = urlparse.urlsplit(ensure_native_str(callback_url))
@@ -141,18 +141,18 @@ def subprocess(pipe_send, pluginpath, callback_url, content_type):
         else:
             # Default to the first provider if selected type was not found
             params = "?content_type={}".format(addon_data.provides[0])
-            support.logger("Unable to find selected content_type '{}', defaulting to '{}'"
-                           .format(content_type, addon_data.provides[0]))
+            support_old.logger("Unable to find selected content_type '{}', defaulting to '{}'"
+                               .format(content_type, addon_data.provides[0]))
 
     # Patch sys.argv to emulate what is expected
     sys.argv = (urlparse.urlunsplit([scheme, pluginid, selector, "", ""]), -1, params)
 
     try:
-        addon = __import__(addon_data.entry_point)
+        addon = __import__(addon_data.source_dir)
         addon.run()
     finally:
         # Send back the results from the addon
-        pipe_send.send(support.plugin_data)
+        pipe_send.send(support_old.plugin_data)
 
 
 def compact_item_selector(listitems, current, preselect):

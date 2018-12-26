@@ -1,26 +1,7 @@
 # Standard Library Imports
 import sys
 
-try:
-    # noinspection PyUnresolvedReferences
-    long_type = long
-except NameError:
-    long_type = int
-
-try:
-    # noinspection PyUnresolvedReferences
-    input_raw = raw_input
-except NameError:
-    input_raw = input
-
-try:
-    import urllib.parse as urlparse
-except ImportError:
-    # noinspection PyUnresolvedReferences
-    import urlparse
-
 PY3 = sys.version_info >= (3, 0)
-# Unicode Type object, unicode on python2 or str on python3
 unicode_type = type(u"")
 
 
@@ -44,31 +25,6 @@ class CacheProperty(object):
             return attr
         else:
             return self
-
-
-def safe_path(path, encoding="utf8"):
-    """
-    Convert path into a encoding that best suits the platform os.
-    Unicode when on windows, utf8 when on linux/bsd.
-
-    :type path: bytes or unicode
-    :param path: The path to convert.
-    :param encoding: The encoding to use when needed.
-    :return: Returns the path as unicode or utf8 encoded string.
-    """
-    return ensure_unicode(path, encoding) if sys.platform.startswith("win") else ensure_bytes(path, encoding)
-
-
-def ensure_bytes(data, encoding="utf8"):
-    """
-    Ensures that given string is returned as a UTF-8 encoded string.
-
-    :param data: String to convert if needed.
-    :param encoding: The encoding to use when encoding.
-    :returns: The given string as UTF-8.
-    :rtype: bytes
-    """
-    return data if isinstance(data, bytes) else unicode_type(data).encode(encoding)
 
 
 def ensure_native_str(data, encoding="utf8"):

@@ -1,32 +1,32 @@
 # Standard Library Imports
-from typing import List, Dict, Iterator, Union
+from typing import List, Dict, Iterator, Union, Tuple
+import xml.etree.ElementTree as ETree
 import warnings
 import zipfile
 import shutil
 import time
 import json
-import sys
 import os
 
 # Third party imports
 import requests
 
 # Package imports
-from addondev import support2, utils
+from addondev import utils
+from addondev.support import Addon, Dependency, KODI_PATHS, logger
 
 # Python 2 compatibility
 if not utils.PY3:
     from codecs import open
 
-CACHE_DIR = support2.KODI_PATHS["addons"]
-PACKAGE_DIR = support2.KODI_PATHS["packages"]
-KODI_REPO = "krypton"
+CACHE_DIR = KODI_PATHS["addons"]
+PACKAGE_DIR = KODI_PATHS["packages"]
+REPOS = ["http://mirrors.kodi.tv/addons/krypton"]
 MAX_AGE = 432000
 
 
 class Repo(object):
     """Check the official kodi repositories for available addons."""
-    repo_url = "http://mirrors.kodi.tv/addons/{}/{}".format(KODI_REPO, "{}")
 
     def __init__(self):
         self.session = requests.session()
@@ -34,23 +34,23 @@ class Repo(object):
         # Check if an update is scheduled
         self.check_file = os.path.join(CACHE_DIR, u"update_check")
         if self.update_required():
-            support2.logger.info("Checking for updates...")
+            logger.info("Checking for updates...")
             self.update()
 
     @utils.CacheProperty
-    def db(self):  # type: () -> Dict[str, support2.Addon]
+    def db(self):  # type: () -> Dict[str, Tuple[str, Addon]]
         """Fetch list of all addons available on the official kodi repository."""
-        support2.logger.info("Communicating with kodi's official repository: Please wait.")
-
-        # Parse the full list of available addon
-        url = self.repo_url.format("addons.xml")
-        resp = self.session.get(url)
-        addon_xml = support2.ETree.fromstring(resp.content)
+        logger.info("Communicating with kodi's official repository: Please wait.")
 
         addons = {}
-        for node in addon_xml.iterfind("addon"):
-            addon = support2.Addon(node)
-            addons[addon.id] = addon
+        for repo in REPOS:
+            # Parse the full list of available addons
+            url = "{}/{}".format(repo.strip("/"), "addons.xml")
+            resp = self.session.get(url)
+            addon_xml = ETree.fromstring(resp.content)
+            for node in addon_xml.iterfind("addon"):
+                addon = Addon(node)
+                addons[addon.id] = (repo, addon)
 
         # Returns a dict of addons with the addon id as key
         return addons
@@ -72,7 +72,7 @@ class Repo(object):
                 # We have a cached addon that no longer exists in the repo
                 warnings.warn("Cached Addon '{}' no longer available on kodi repo".format(addon.id))
 
-            elif addon.version < self.db[addon.id].version:
+            elif addon.version < self.db[addon.id][1].version:
                 self.download(addon)
 
         # Create update-check file
@@ -81,11 +81,11 @@ class Repo(object):
         with open(self.check_file, "w", encoding="utf8") as stream:
             json.dump(timestamp, stream)
 
-    def download(self, dep):  # type: (Union[support2.Dependency, support2.Addon]) -> support2.Addon
+    def download(self, dep):  # type: (Union[Dependency, Addon]) -> Addon
         if dep.id not in self.db:
             raise ValueError("Addon '{}' is not available on kodi repo".format(dep.id))
         else:
-            addon = self.db[dep.id]
+            repo, addon = self.db[dep.id]
 
         # Warn user if we are downloading an older
         # version than what is required
@@ -96,15 +96,15 @@ class Repo(object):
         filename = u"{}-{}.zip".format(addon.id, addon.version)
         filepath = os.path.join(PACKAGE_DIR, filename)
         if os.path.exists(filepath):
-            support2.logger.info("Using cached package: '{}'".format(filename))
+            logger.info("Using cached package: '{}'".format(filename))
         else:
-            support2.logger.info("Downloading: '{}'".format(filename))
+            logger.info("Downloading: '{}'".format(filename))
             # Remove old zipfiles before download, if any
             self.cleanup(addon.id)
 
             # Request the addon zipfile from server
             url_part = "{0}/{1}".format(addon.id, filename)
-            url = self.repo_url.format(url_part)
+            url = "{}/{}".format(repo, url_part)
             resp = self.session.get(url)
 
             # Read and save contents of zipfile to package directory
@@ -144,40 +144,32 @@ class Repo(object):
                 os.remove(filepath)
 
 
-def cached_addons():  # type: () -> Iterator[support2.Addon]
+def cached_addons():  # type: () -> Iterator[Addon]
     """Retrun List of already download addons."""
     builtin_cache = os.path.join(os.path.dirname(__file__), "data")
     for addons_dir in (builtin_cache, CACHE_DIR):
         for filename in os.listdir(addons_dir):
             path = os.path.join(addons_dir, filename, "addon.xml")
             if os.path.exists(path):
-                yield support2.Addon.from_file(path)
+                yield Addon.from_file(path)
 
 
-def process_dependencies(dependencies):  # type: (List[support2.Dependency]) -> Iterator[support2.Addon]
+def process_dependencies(dependencies):  # type: (List[Dependency]) -> Iterator[Addon]
     """Process the list of requred dependencies, downloading any missing dependencies."""
     cached = {addon.id: addon for addon in cached_addons()}
     repo = Repo()
 
-    # Inject resource.language.en_gb requirement
-    dep = support2.Dependency("resource.language.en_gb", "1.0.0")
+    # Inject resource.language.en_gb requirement Kodi localized strings
+    dep = Dependency("resource.language.en_gb", "1.0.0")
     dependencies.append(dep)
 
-    # Reverse sys path to allow
-    # for faster list insertion
-    sys.path.reverse()
-
     for dep in dependencies:
-        support2.logger.info("Processing Dependency: %s", dep.id)
+        logger.info("Processing Dependency: %s", dep.id)
         # Download dependency if not already downloaded
         if dep.id not in cached or dep.version > cached[dep.id].version:
             addon = repo.download(dep)
         else:
             addon = cached[dep.id]
-
-        if addon.type == "xbmc.python.module":
-            path = os.path.join(addon.path, os.path.normpath(addon.library))
-            sys.path.append(path)
 
         # Check if the dependency has dependencies
         for extra_dep in addon.dependencies:
@@ -185,7 +177,3 @@ def process_dependencies(dependencies):  # type: (List[support2.Dependency]) -> 
                 dependencies.append(extra_dep)
 
         yield addon
-
-    # Reverse the path list again
-    # to change it back to normal
-    sys.path.reverse()
