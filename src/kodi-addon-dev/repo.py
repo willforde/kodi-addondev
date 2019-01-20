@@ -13,14 +13,13 @@ import requests
 
 # Package imports
 from addondev import utils
-from addondev.support import Addon, Dependency, KODI_PATHS, logger
+from addondev.support import Addon, Dependency, logger, CACHE_DIR
 
 # Python 2 compatibility
 if not utils.PY3:
     from codecs import open
 
-CACHE_DIR = KODI_PATHS["addons"]
-PACKAGE_DIR = KODI_PATHS["packages"]
+PACKAGE_DIR = os.path.join("packages", CACHE_DIR)
 REPOS = ["http://mirrors.kodi.tv/addons/krypton"]
 MAX_AGE = 432000
 

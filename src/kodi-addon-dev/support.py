@@ -1,11 +1,10 @@
 # Standard Library Imports
 from typing import Iterator, Tuple, List
 import xml.etree.ElementTree as ETree
-from collections import OrderedDict
+from codecs import open as _open
 from xml.dom import minidom
 import tempfile
 import logging
-import shutil
 import sys
 import re
 import os
@@ -18,6 +17,8 @@ from addondev import utils
 
 IGNORE_LIST = ("xbmc.python", "xbmc.core", "kodi.resource")
 EXT_POINTS = ("xbmc.python.pluginsource", "xbmc.python.module")
+CACHE_DIR = appdirs.user_cache_dir("kodi-addondev")
+KODI_HOME = tempfile.mkdtemp(prefix="kodi-addondev.")
 
 # Base logger
 logger = logging.getLogger("kodi-addondev")
@@ -26,29 +27,6 @@ handler.setFormatter(logging.Formatter("%(relativeCreated)-13s %(levelname)7s: %
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
-
-# Kodi directory paths
-KODI_PATHS = OrderedDict()
-# TODO: Add a way to force a clean root or resue old root
-KODI_PATHS["home"] = tempfile.mkdtemp(prefix="kodi-addondev.")
-KODI_PATHS["home"] = home = "/tmp/kodi-addondev"
-KODI_PATHS["userdata"] = userdata = os.path.join(home, "userdata")
-KODI_PATHS["addon_data"] = os.path.join(userdata, "addon_data")
-KODI_PATHS["temp"] = os.path.join(home, "temp")
-KODI_PATHS["addons"] = cache_dir = appdirs.user_cache_dir("kodi-addondev")
-KODI_PATHS["packages"] = os.path.join(cache_dir, "packages")
-
-# Ensure that there are no leftover temp directorys
-tmpdir = os.path.dirname(home)
-for filename in os.listdir(tmpdir):
-    if filename.startswith("kodi-addondev."):
-        filepath = os.path.join(tmpdir, filename)
-        shutil.rmtree(filepath, ignore_errors=True)
-
-# Ensure that all directories exists
-for kodi_path in KODI_PATHS.values():
-    if not os.path.exists(kodi_path):
-        os.makedirs(kodi_path)
 
 
 class Dependency(object):
@@ -107,7 +85,7 @@ class Addon(object):
 
     @property
     def profile(self):  # type: () -> str
-        return os.path.join(KODI_PATHS["userdata"], self.id)
+        return os.path.join(KODI_HOME, "userdata", "addon_data", self.id)
 
     @property
     def description(self):  # type: () -> str
@@ -137,18 +115,19 @@ class Addon(object):
 
     @property
     def fanart(self):  # type: () -> str
-        return self._asset("fanart")
+        return self._asset("fanart", "jpg")
 
     @property
     def icon(self):  # type: () -> str
-        return self._asset("icon")
+        return self._asset("icon", "png")
 
-    def _asset(self, name):  # type: (str) -> str
+    def _asset(self, name, ext):  # type: (str, str) -> str
         asset = self._xml.find("extension/assets/{}".format(name))
-        if asset is None:
-            return ""
-        else:
+        if asset is not None:
             return os.path.join(self.path, os.path.normpath(asset.text))
+        else:
+            path = os.path.join(self.path, "{}.{}".format(name, ext))
+            return path if os.path.exists(path) else ""
 
     @property
     def changelog(self):  # type: () -> str
@@ -210,25 +189,13 @@ class Addon(object):
         for path in string_loc:
             if os.path.exists(path):
                 # Extract the strings from the strings.po file
-                with open(path, "r", encoding="utf-8") as stream:
+                with _open(path, "r", encoding="utf-8") as stream:
                     file_data = stream.read()
 
                 # Populate dict of strings
                 search_pattern = 'msgctxt\s+"#(\d+)"\s+msgid\s+"(.+?)"\s+msgstr\s+"(.*?)'
                 for strID, msgID, msStr in re.findall(search_pattern, file_data):
                     yield int(strID), msStr if msStr else msgID
-
-    def switch_dir(self):  # type: () -> str
-        """
-        Switch to the source directory for this addon.
-        Return the source file to import if this addon is a pluginsource.
-        """
-        if self.type == "xbmc.python.pluginsource":
-            os.chdir(self.path)
-            return self.library.rstrip(".py")
-        elif self.type == "xbmc.python.module":
-            path = os.path.join(self.path, os.path.normpath(self.library))
-            os.chdir(path)
 
     @property
     def library(self):  # type: () -> str
@@ -267,7 +234,7 @@ class Addon(object):
 
         # Recreate the settings.xml file
         raw_xml = minidom.parseString(ETree.tostring(tree)).toprettyxml(indent=" "*4)
-        with open(path, "w", encoding="utf8") as stream:
+        with _open(path, "w", encoding="utf8") as stream:
             stream.write(raw_xml)
 
         # Update local store and return

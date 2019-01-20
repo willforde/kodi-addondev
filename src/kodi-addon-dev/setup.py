@@ -5,7 +5,7 @@ import sys
 from addondev import tesseract
 
 
-def test_initializer(addon_path, repos=None):
+def initializer(addon_path, repos=None):
     """
     Setup & initialize the mock kodi environment.
 
@@ -18,7 +18,6 @@ def test_initializer(addon_path, repos=None):
     :param list repos: List of unofficial kodi repos to use.
     """
     import xbmc
-    xbmc.session = tracker = tesseract.Dataset(addon_path, repos)
+    xbmc.session = tracker = tesseract.Tesseract(addon_path, repos)
     addon = tracker.get_addon()
-    addon.switch_dir()
     sys.argv = ["plugin://{}".format(addon.id), -1, ""]
