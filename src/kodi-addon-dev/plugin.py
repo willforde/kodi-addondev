@@ -60,7 +60,6 @@ def session_data():
 
 
 @pytest.fixture(autouse=True)
-def clean_session(request):
+def clean_session():
     """Clear the kodi session data before every test."""
-    print(request.config.option.addonpath)
     xbmc.session.data.clear()
