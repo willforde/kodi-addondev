@@ -20,8 +20,8 @@ except NameError:
     _input = input
 
 # Package imports
-from addondev import repo, utils
-from addondev.support import Addon, logger, KODI_HOME
+from . import repo, utils
+from .support import Addon, logger, KODI_HOME
 
 # Kodi log levels
 log_levels = (logging.DEBUG,  # xbmc.LOGDEBUG

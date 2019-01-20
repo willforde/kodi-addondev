@@ -12,8 +12,8 @@ import os
 import requests
 
 # Package imports
-from addondev import utils
-from addondev.support import Addon, Dependency, logger, CACHE_DIR
+from . import utils
+from .support import Addon, Dependency, logger, CACHE_DIR
 
 # Python 2 compatibility
 if not utils.PY3:

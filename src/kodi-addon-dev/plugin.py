@@ -1,9 +1,13 @@
-import pytest
-import xbmc
-import os
+# Standard Library Imports
 import argparse
-from addondev.setup import initializer
+import os
 
+# Package imports
+from .setup import initializer
+import xbmc
+
+# Third party imports
+import pytest
 try:
     from unittest import mock
 except ImportError:

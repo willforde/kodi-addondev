@@ -2,7 +2,7 @@
 import sys
 
 # Package imports
-from addondev import tesseract
+from . import tesseract
 
 
 def initializer(addon_path, repos=None):

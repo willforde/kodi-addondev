@@ -13,7 +13,7 @@ import os
 import appdirs
 
 # Package imports
-from addondev import utils
+from . import utils
 
 IGNORE_LIST = ("xbmc.python", "xbmc.core", "kodi.resource")
 EXT_POINTS = ("xbmc.python.pluginsource", "xbmc.python.module")
