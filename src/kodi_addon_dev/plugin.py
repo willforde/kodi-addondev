@@ -115,14 +115,14 @@ class SettingsMocker(MutableMapping):
 ############
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_dialog():
     """Mock the xbmcgui Dialog class with a MagicMock object."""
     with mock.patch("xbmcgui.Dialog", autospec=True) as mock_obj:
         yield mock_obj.return_value
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_keyboard():
     """Mock the xbmcgui Keyboard class with a MagicMock object."""
     with mock.patch("xbmc.Keyboard", autospec=True) as mock_obj:
