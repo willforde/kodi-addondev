@@ -3,6 +3,7 @@ import sys
 
 # Package imports
 from . import tesseract
+import xbmc
 
 
 def initializer(addon_path, repos=None):
@@ -17,7 +18,6 @@ def initializer(addon_path, repos=None):
     :param str addon_path: Path to the add-on.
     :param list repos: List of unofficial kodi repos to use.
     """
-    import xbmc
     xbmc.session = tracker = tesseract.Tesseract(addon_path, repos)
     addon = tracker.get_addon()
     sys.argv = ["plugin://{}".format(addon.id), -1, ""]

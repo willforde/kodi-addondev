@@ -24,19 +24,40 @@ class RealPath(argparse.Action):
 
 
 def pytest_addoption(parser):
+    """Add command line arguments related to this pluging."""
     group = parser.getgroup("kodi-addondev", "kodi addon testing support")
     group.addoption(
         "--addon-path",
         action=RealPath,
-        dest="addonpath",
-        help="Path to the kodi addon to test.")
+        dest="addon",
+        help="Path to the kodi addon being tested.")
+    group.addoption(
+        "--custom-repo",
+        action="store",
+        dest="repos",
+        help="Comma separated list of custom repo urls.")
 
 
-@pytest.mark.trylast
-def pytest_load_initial_conftests(early_config, *_):
-    path = early_config.known_args_namespace.addonpath
+def pytest_configure(config):
+    """
+    Setup the mock kodi environment after the command line options have
+    been parsed and all plugins and initial conftest files been loaded.
+    """
+    path = config.known_args_namespace.addon
     if path:
-        initializer(path)
+        _repos = config.known_args_namespace.repos
+        repos = [repo.strip() for repo in _repos.split(",")] if _repos else None
+        initializer(path, repos)
+
+
+def pytest_runtest_call():
+    """Clear the kodi session data before every test."""
+    xbmc.session.data.clear()
+
+
+############
+# Fixtures #
+############
 
 
 @pytest.fixture
@@ -57,9 +78,3 @@ def mock_keyboard():
 def session_data():
     """Return the kodi session data related to running test."""
     return xbmc.session.data
-
-
-@pytest.fixture(autouse=True)
-def clean_session():
-    """Clear the kodi session data before every test."""
-    xbmc.session.data.clear()

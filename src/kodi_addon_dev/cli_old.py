@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Standard Library Imports
 from argparse import ArgumentParser
 import logging
@@ -7,24 +5,23 @@ import sys
 import os
 
 # Package imports
-from addondev.interactive_old import interactive
-from addondev.utils import safe_path, ensure_unicode
-from addondev.support_old import logger, Repo
+from .interactive_old import interactive
+from .utils import ensure_unicode
+from .support_old import logger, Repo
 
 # Create Parser to parse the required arguments
 parser = ArgumentParser(description="Execute kodi plugin")
 parser.add_argument("addonpath",
-                    help="The path to the addon to execute. Path can be full or relative")
+                    help="The path to the addon that will be executed. Path can be full or relative.")
 
 parser.add_argument("-d", "--debug", action="store_true",
                     help="Show debug logging output")
 
 parser.add_argument("-c", "--compact", action="store_true",
-                    help="Compact listitem view, to one line per listitem."
-                    "In this mode, text length will not be croped to fit withen terminal window.")
+                    help="Compact view, one line per listitem.")
 
 parser.add_argument("-n", "--no-crop", action="store_true",
-                    help="Disable croping of long lines of text when in detailed mode. Ignored when in compact mode.")
+                    help="Disable croping of long lines of text when in detailed mode.")
 
 parser.add_argument("-p", "--preselect",
                     help="Comma separated list of pre selections")
@@ -34,7 +31,25 @@ parser.add_argument("-t", "--content-type",
                     "within provides section of addon.xml. If this is not set it will default to video.")
 
 parser.add_argument("-r", "--repo", default="krypton",
-                    help="The official kodi repository to use when downloading dependencies. (krypton)")
+                    help="The official kodi repository to use when downloading dependencies. Default (krypton)")
+
+
+def decode_arg(path):
+    # Execute the addon in interactive mode
+    if isinstance(path, bytes):
+        try:
+            # There is a possibility that this will fail
+            return path.decode(sys.getfilesystemencoding())
+        except UnicodeDecodeError:
+            try:
+                # Attept decoding using utf8
+                return path.decode("utf8")
+            except UnicodeDecodeError:
+                # Fall back to latin-1
+                return path.decode("latin-1")
+                # If this fails then we are fucked
+    else:
+        return path
 
 
 def main():
@@ -67,24 +82,6 @@ def main():
         interactive(*arguments, compact_mode=args.compact, no_crop=args.no_crop)
     else:
         raise RuntimeError("unable to find requested add-on: {}".format(plugin_path.encode("utf8")))
-
-
-def decode_arg(path):
-    # Execute the addon in interactive mode
-    if isinstance(path, bytes):
-        try:
-            # There is a possibility that this will fail
-            return path.decode(sys.getfilesystemencoding())
-        except UnicodeDecodeError:
-            try:
-                # Attept decoding using utf8
-                return path.decode("utf8")
-            except UnicodeDecodeError:
-                # Fall back to latin-1
-                return path.decode("latin-1")
-                # If this fails then we are fucked
-    else:
-        return path
 
 
 # This is only here for development

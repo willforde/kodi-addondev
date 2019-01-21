@@ -6,8 +6,8 @@ import os
 
 def data_files():
     datafiles = []
-    for root, _, files in os.walk("src/kodi-addon-dev/data"):
-        root = root.replace("src/kodi-addon-dev/", "")
+    for root, _, files in os.walk("src/kodi_addon_dev/data"):
+        root = root.replace("src/kodi_addon_dev/", "")
         for filename in files:
             path = os.path.join(root, filename)
             datafiles.append(path)
@@ -41,7 +41,7 @@ setup(
     platforms=['OS Independent'],
     packages=find_packages('src'),
     package_dir={'': 'src'},
-    package_data={'kodi-addon-dev': data_files()},
+    package_data={'kodi_addon_dev': data_files()},
     py_modules=[os.path.splitext(os.path.basename(path))[0] for path in glob('src/*.py')],
     entry_points={'console_scripts': ['kodi-addon-dev=kodi_addon_dev.cli:main'],
                   'pytest11': ['kodi-addon-dev=kodi_addon_dev.plugin']},
