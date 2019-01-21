@@ -1,9 +1,11 @@
 # Standard Library Imports
+import functools
 import argparse
 import os
 
 # Package imports
 from .setup import initializer
+from .support import Addon
 import xbmc
 
 # Third party imports
@@ -12,6 +14,12 @@ try:
     from unittest import mock
 except ImportError:
     import mock
+
+try:
+    # noinspection PyCompatibility
+    from collections.abc import MutableMapping
+except ImportError:
+    from collections import MutableMapping
 
 
 class RealPath(argparse.Action):
@@ -55,19 +63,66 @@ def pytest_runtest_call():
     xbmc.session.data.clear()
 
 
+class SettingsMocker(MutableMapping):
+    """Mock addon settings and pervent settings from being saved to disk."""
+    def __init__(self, request, addon_id=None):
+        # Fetch the required addon
+        self.addon = addon = xbmc.session.get_addon(addon_id)  # type: Addon
+
+        # Save original object
+        self.org_settings = addon.settings.copy()
+        self.org_set_setting = addon.set_setting
+
+        # Monkey patch set_settings with dict setitem to pervent saving setting to disk
+        addon.set_setting = addon.settings.__setitem__
+
+        request.addfinalizer(self.close)
+        self.settings = addon.settings
+        self.closed = False
+
+    def __enter__(self):
+        return self.settings
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self):
+        """Restore the original objects."""
+        if not self.closed:
+            self.addon.settings = self.org_settings
+            self.addon.set_setting = self.org_set_setting
+            self.settings = None
+            self.closed = True
+
+    def __setitem__(self, k, v):
+        self.settings[k] = v
+
+    def __delitem__(self, k):
+        del self.settings[k]
+
+    def __getitem__(self, k):
+        return self.settings[k]
+
+    def __iter__(self):
+        return iter(self.settings)
+
+    def __len__(self):
+        len(self.settings)
+
+
 ############
 # Fixtures #
 ############
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_dialog():
     """Mock the xbmcgui Dialog class with a MagicMock object."""
     with mock.patch("xbmcgui.Dialog", autospec=True) as mock_obj:
         yield mock_obj.return_value
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_keyboard():
     """Mock the xbmcgui Keyboard class with a MagicMock object."""
     with mock.patch("xbmc.Keyboard", autospec=True) as mock_obj:
@@ -78,3 +133,9 @@ def mock_keyboard():
 def session_data():
     """Return the kodi session data related to running test."""
     return xbmc.session.data
+
+
+@pytest.fixture
+def mock_settings(request):
+    """Return the settings context manager"""
+    return functools.partial(SettingsMocker, request)

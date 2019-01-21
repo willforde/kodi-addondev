@@ -1,5 +1,5 @@
 # Standard Library Imports
-from typing import Iterator, Tuple, List
+from typing import Iterator, Tuple, List, Dict
 import xml.etree.ElementTree as ETree
 from codecs import open as _open
 from xml.dom import minidom
@@ -54,7 +54,8 @@ class Addon(object):
         return cls(xml_node, os.path.dirname(xml_path))
 
     def __init__(self, xml_node, path=""):  # type: (ETree.Element, str) -> None
-        self.settings = self.strings = None
+        self.settings = None  # type: Dict[str, str]
+        self.strings = None  # type: Dict[int, str]
         self._xml = xml_node
         self.path = path
         self.stars = -1
