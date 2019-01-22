@@ -10,6 +10,7 @@ import xbmc
 
 # Third party imports
 import pytest
+
 try:
     from unittest import mock
 except ImportError:
@@ -31,6 +32,17 @@ class RealPath(argparse.Action):
         setattr(namespace, self.dest, os.path.realpath(value))
 
 
+class AppendSplitter(argparse.Action):
+    """
+    Custom action to split multiple parameters which are
+    separated by a comma, and append then to a default list.
+    """
+    def __call__(self, _, namespace, values, option_string=None):
+        items = self.default if isinstance(self.default, list) else []
+        items.extend(value.strip() for value in values.split(","))
+        setattr(namespace, self.dest, items)
+
+
 def pytest_addoption(parser):
     """Add command line arguments related to this pluging."""
     group = parser.getgroup("kodi-addondev", "kodi addon testing support")
@@ -41,12 +53,12 @@ def pytest_addoption(parser):
         help="Path to the kodi addon being tested.")
     group.addoption(
         "--custom-repos",
-        action="store",
+        action=AppendSplitter,
         dest="repos",
         help="Comma separated list of custom repo urls.")
     group.addoption(
         "--local-repos",
-        action="store",
+        action=AppendSplitter,
         dest="local_repos",
         help="Comma separated list of directorys where kodi addons are stored..")
 
@@ -58,11 +70,7 @@ def pytest_configure(config):
     """
     path = config.known_args_namespace.addon
     if path:
-        _repos = config.known_args_namespace.repos
-        _local_repos = config.known_args_namespace.local_repos
-        repos = [repo.strip() for repo in _repos.split(",")] if _repos else None
-        local_repos = [repo.strip() for repo in _local_repos.split(",")] if _local_repos else None
-        initializer(path, repos, local_repos)
+        initializer(path, config.known_args_namespace.repos, config.known_args_namespace.local_repos)
 
 
 def pytest_runtest_call():

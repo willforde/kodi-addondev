@@ -21,8 +21,8 @@ def data_files(path, data_dir):
     for root, _, files in os.walk(os.path.join(path, data_dir)):
         root = root.replace(path + os.path.sep, "")
         for filename in files:
-            path = os.path.join(root, filename)
-            datafiles.append(path)
+            filepath = os.path.join(root, filename)
+            datafiles.append(filepath)
     return datafiles
 
 

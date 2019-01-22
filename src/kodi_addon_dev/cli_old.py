@@ -7,7 +7,7 @@ import os
 # Package imports
 from .interactive_old import interactive
 from .utils import ensure_unicode
-from .support_old import logger, Repo
+
 
 # Create Parser to parse the required arguments
 parser = ArgumentParser(description="Execute kodi plugin")

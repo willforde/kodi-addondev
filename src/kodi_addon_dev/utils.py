@@ -7,7 +7,7 @@ unicode_type = type(u"")
 
 class CacheProperty(object):
     """
-    Converts a class method into a property.
+    Converts a class method into a property and cache result after first use.
 
     When property is accessed for the first time, the result is computed and returned.
     The class property is then replaced with an instance attribute with the computed result.
