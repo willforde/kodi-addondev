@@ -150,8 +150,9 @@ def cached_addons(local_repos):  # type: (List[str]) -> Iterator[Addon]
         """Return a iterator of addon cache directorys."""
         yield os.path.join(os.path.dirname(__file__), "data")
         yield CACHE_DIR
-        for repo_dir in local_repos:
-            yield os.path.realpath(repo_dir)
+        if local_repos:
+            for repo_dir in local_repos:
+                yield os.path.realpath(repo_dir)
 
     # Search all cache directorys for kodi addons
     for addons_dir in cache_dirs():
