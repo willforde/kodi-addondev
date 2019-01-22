@@ -143,19 +143,27 @@ class Repo(object):
                 os.remove(filepath)
 
 
-def cached_addons():  # type: () -> Iterator[Addon]
+def cached_addons(local_repos):  # type: (List[str]) -> Iterator[Addon]
     """Retrun List of already download addons."""
-    builtin_cache = os.path.join(os.path.dirname(__file__), "data")
-    for addons_dir in (builtin_cache, CACHE_DIR):
+
+    def cache_dirs():
+        """Return a iterator of addon cache directorys."""
+        yield os.path.join(os.path.dirname(__file__), "data")
+        yield CACHE_DIR
+        for repo_dir in local_repos:
+            yield os.path.realpath(repo_dir)
+
+    # Search all cache directorys for kodi addons
+    for addons_dir in cache_dirs():
         for filename in os.listdir(addons_dir):
             path = os.path.join(addons_dir, filename, "addon.xml")
             if os.path.exists(path):
                 yield Addon.from_file(path)
 
 
-def process_dependencies(dependencies):  # type: (List[Dependency]) -> Iterator[Addon]
+def process_dependencies(dependencies, local_repos):  # type: (List[Dependency], List[str]) -> Iterator[Addon]
     """Process the list of requred dependencies, downloading any missing dependencies."""
-    cached = {addon.id: addon for addon in cached_addons()}
+    cached = {addon.id: addon for addon in cached_addons(local_repos)}
     repo = Repo()
 
     # Inject resource.language.en_gb requirement Kodi localized strings

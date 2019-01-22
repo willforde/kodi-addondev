@@ -155,7 +155,7 @@ class Tesseract(object):
     :type pipe: multiprocessing.Connection
     """
 
-    def __init__(self, addon_path, repos, pipe=None):
+    def __init__(self, addon_path, repos, local_repos, pipe=None):
         # Add custom kodi repos to repo list
         if repos:
             repo.REPOS.extend(repos)
@@ -178,7 +178,7 @@ class Tesseract(object):
         self.addons = {addon.id: addon.preload()}  # type: Dict[str, Addon]
 
         # Process all dependencies and download any missing dependencies
-        for dep in repo.process_dependencies(addon.dependencies):
+        for dep in repo.process_dependencies(addon.dependencies, local_repos):
             self.addons[dep.id] = dep.preload()
 
             if dep.type == "xbmc.python.module":

@@ -40,10 +40,15 @@ def pytest_addoption(parser):
         dest="addon",
         help="Path to the kodi addon being tested.")
     group.addoption(
-        "--custom-repo",
+        "--custom-repos",
         action="store",
         dest="repos",
         help="Comma separated list of custom repo urls.")
+    group.addoption(
+        "--local-repos",
+        action="store",
+        dest="local_repos",
+        help="Comma separated list of directorys where kodi addons are stored..")
 
 
 def pytest_configure(config):
@@ -54,8 +59,10 @@ def pytest_configure(config):
     path = config.known_args_namespace.addon
     if path:
         _repos = config.known_args_namespace.repos
+        _local_repos = config.known_args_namespace.local_repos
         repos = [repo.strip() for repo in _repos.split(",")] if _repos else None
-        initializer(path, repos)
+        local_repos = [repo.strip() for repo in _local_repos.split(",")] if _local_repos else None
+        initializer(path, repos, local_repos)
 
 
 def pytest_runtest_call():
