@@ -188,6 +188,9 @@ class Tesseract(object):
         # Add plugin addons to sys path as well
         if addon.type == "xbmc.python.pluginsource" and addon.path not in sys.path:
             sys.path.append(addon.path)
+        elif addon.type == "xbmc.python.module":
+            path = os.path.join(addon.path, os.path.normpath(addon.library))
+            sys.path.append(path)
 
         # Reverse the path list again
         # to change it back to normal
