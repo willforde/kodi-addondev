@@ -27,14 +27,14 @@ MAX_AGE = 432000
 class Repo(object):
     """Check the official kodi repositories for available addons."""
 
-    def __init__(self):
+    def __init__(self, cached):
         self.session = requests.session()
 
         # Check if an update is scheduled
         self.check_file = os.path.join(CACHE_DIR, u"update_check")
         if self.update_required():
             logger.info("Checking for updates...")
-            self.update()
+            self.update(cached)
 
     @utils.CacheProperty
     def db(self):  # type: () -> Dict[str, Tuple[str, Addon]]
@@ -64,9 +64,9 @@ class Repo(object):
             # Default to True when the check file is missing
             return True
 
-    def update(self):
+    def update(self, cached):
         """Check if any cached addon need updating."""
-        for addon in cached_addons():
+        for addon in cached.values():
             if addon.id not in self.db:
                 # We have a cached addon that no longer exists in the repo
                 warnings.warn("Cached Addon '{}' no longer available on kodi repo".format(addon.id))
@@ -143,7 +143,7 @@ class Repo(object):
                 os.remove(filepath)
 
 
-def cached_addons(local_repos):  # type: (List[str]) -> Iterator[Addon]
+def cached_addons(local_repos=None):  # type: (List[str]) -> Iterator[Addon]
     """Retrun List of already download addons."""
 
     def cache_dirs():
@@ -165,7 +165,7 @@ def cached_addons(local_repos):  # type: (List[str]) -> Iterator[Addon]
 def process_dependencies(dependencies, local_repos):  # type: (List[Dependency], List[str]) -> Iterator[Addon]
     """Process the list of requred dependencies, downloading any missing dependencies."""
     cached = {addon.id: addon for addon in cached_addons(local_repos)}
-    repo = Repo()
+    repo = Repo(cached)
 
     # Inject resource.language.en_gb requirement Kodi localized strings
     dep = Dependency("resource.language.en_gb", "1.0.0")
