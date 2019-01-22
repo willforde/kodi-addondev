@@ -125,7 +125,7 @@ class Repo(object):
             shutil.rmtree(addon_dir)
 
         self.extract_zip(filepath)
-        addon.path = addon_dir
+        addon.reload(addon_dir)
         return addon
 
     @staticmethod

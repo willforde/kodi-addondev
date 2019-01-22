@@ -53,6 +53,13 @@ class Addon(object):
         xml_node = ETree.parse(xml_path).getroot()
         return cls(xml_node, os.path.dirname(xml_path))
 
+    def reload(self, path):
+        """Reload the addon data from givin path."""
+        xml_path = os.path.join(path, "addon.xml")
+        self._xml = ETree.parse(xml_path).getroot()
+        self.type = self._point_type()
+        self.path = path
+
     def __init__(self, xml_node, path=""):  # type: (ETree.Element, str) -> None
         self.settings = None  # type: Dict[str, str]
         self.strings = None  # type: Dict[int, str]
@@ -61,12 +68,16 @@ class Addon(object):
         self.stars = -1
 
         # Parse entry point
-        self.type = ""
+        self.type = self._point_type()
+
+    def _point_type(self):
+        """Return the extention point type of the addon."""
         for ext in self._xml.findall("extension"):
             point = ext.get("point")
             if point in EXT_POINTS:
-                self.type = point
-                break
+                return point
+        else:
+            return ""
 
     @property
     def id(self):  # type: () -> str
