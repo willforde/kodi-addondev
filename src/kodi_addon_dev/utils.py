@@ -61,3 +61,21 @@ def ensure_unicode(data, encoding="utf8"):
         return data.decode(encoding)
     else:
         return unicode_type(data)
+
+
+def unicode_cmdargs(cmdarg):
+    """Convert a command line string to unicode."""
+    if isinstance(cmdarg, bytes):
+        try:
+            # There is a possibility that this will fail
+            return cmdarg.decode(sys.getfilesystemencoding())
+        except UnicodeDecodeError:
+            try:
+                # Attept decoding using utf8
+                return cmdarg.decode("utf8")
+            except UnicodeDecodeError:
+                # Fall back to latin-1
+                return cmdarg.decode("latin-1")
+                # If this fails then we are fucked
+    else:
+        return cmdarg
