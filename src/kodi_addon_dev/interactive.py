@@ -177,7 +177,7 @@ def interactive(cmdargs):  # type: (argparse.Namespace) -> None
 
 
 def process_resp(resp, parent_stack, preselect, cmdargs):
-    # type: (KodiData, List, List, argparse.Namespace) -> urlparse.SplitResult
+    # type: (KodiData, List, List, argparse.Namespace) -> Union[bool, urlparse.SplitResult]
 
     # Item list with first item as the previous directory item
     items = [{"label": "..", "path": parent_stack[-1]}] if parent_stack else []
