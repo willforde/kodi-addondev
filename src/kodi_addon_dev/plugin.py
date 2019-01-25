@@ -1,10 +1,11 @@
 # Standard Library Imports
 import functools
 import argparse
+import sys
 import os
 
 # Package imports
-from .setup import initializer
+from . import tesseract, repo
 from .support import Addon
 import xbmc
 
@@ -54,7 +55,7 @@ def pytest_addoption(parser):
     group.addoption(
         "--custom-repos",
         action=AppendSplitter,
-        dest="repos",
+        dest="remote_repos",
         help="Comma separated list of custom repo urls.")
     group.addoption(
         "--local-repos",
@@ -67,10 +68,22 @@ def pytest_configure(config):
     """
     Setup the mock kodi environment after the command line options have
     been parsed and all plugins and initial conftest files been loaded.
+
+    When a plugin path is givin, all environment variables that relate to kodi will be setup.
+    All the add-on's required dependencies will be downloaded and a dummy kodi directory will be created.
     """
-    path = config.known_args_namespace.addon
-    if path:
-        initializer(path, config.known_args_namespace.repos, config.known_args_namespace.local_repos)
+    cmdargs = config.known_args_namespace
+    if cmdargs.path:
+        # Load the given addon path, raise ValueError if addon is not valid
+        addon = Addon.from_path(cmdargs.path)
+
+        # Process addon and preload
+        cached = repo.LocalRepo(cmdargs.local_repos, cmdargs.remote_repos, addon)
+        deps = cached.load_dependencies(addon)
+
+        # Setup xbmc session
+        xbmc.session = tesseract.Tesseract(addon, deps, cached)
+        sys.argv = ["plugin://{}".format(addon.id), -1, ""]
 
 
 def pytest_runtest_call():

@@ -1,16 +1,24 @@
 # Standard Library Imports
-from __future__ import print_function
+from typing import Union, Tuple, List
 import multiprocessing
 import binascii
+import argparse
 import pickle
+import runpy
 import json
 import sys
 import re
 import os
 
+from . import repo
+from .support import Addon, logger
+from .tesseract import Tesseract, KodiData
+import xbmc
+
 try:
     from shutil import get_terminal_size
 except ImportError:
+    # noinspection PyUnresolvedReferences
     from backports.shutil_get_terminal_size import get_terminal_size
 
 try:
@@ -19,149 +27,190 @@ except ImportError:
     # noinspection PyUnresolvedReferences
     import urlparse
 
-# Package imports
-from addondev.utils import input_raw, ensure_native_str, unicode_type
-from addondev import support_old
+try:
+    # noinspection PyUnresolvedReferences
+    _input = input_raw
+except NameError:
+    _input = input
 
 
-def interactive(pluginpath, preselect=None, content_type="video", compact_mode=False, no_crop=False):
-    """
-    Execute a given kodi plugin
+class Executer(object):
+    def __init__(self, addon, cached):
+        self.deps = cached.load_dependencies(addon)
+        self.cached = cached
+        self.addon = addon
+        self.reuse = False
+        self._pipe = None
 
-    :param unicode pluginpath: The path to the plugin to execute.
-    :param list preselect: A list of pre selection to make.
-    :param str content_type: The content type to list, if more than one type is available. e.g. video, audio
-    :param bool compact_mode: If True the listitems view will be compacted, else full detailed. (default => False)
-    :param bool no_crop: Disable croping of long lines of text if True, (default => False)
-    """
-    plugin_id = os.path.basename(pluginpath)
-    callback_url = base_url = u"plugin://{}/".format(plugin_id)
+    def subprocess(self):  # type: () -> Tuple[multiprocessing.Process, multiprocessing.Connection]
+        if self._pipe:
+            return self._pipe
+        else:
+            # Pips to handle passing of data from and to subprocess
+            source_pipe, sub_pipe = multiprocessing.Pipe(duplex=True)
 
-    # Keep track of parents so we can have a '..' option to go back
+            # Create the new process that will execute the addon
+            p = multiprocessing.Process(target=subprocess, args=[sub_pipe, self.reuse])
+            p.start()
+
+            # Save the pipe for later use
+            resp = (p, source_pipe)
+            if self.reuse:
+                self._pipe = resp
+            return resp
+
+    def execute(self, url_parts):  # type: (urlparse.SplitResult) -> Union[bool, KodiData]
+        command = ("execute", (self.addon, self.deps, self.cached, url_parts))
+        process, pipe = self.subprocess()
+        pipe.send(command)
+
+        # Wait till we receive data from the addon process
+        while True:
+            status, data = pipe.recv()
+            if status == "prompt":
+                input_data = _input(data)
+                pipe.send(input_data)
+            elif status is False:
+                resp = False
+                break
+            else:
+                resp = data
+                break
+
+        if not self.reuse:
+            process.join()
+        return resp
+
+    def close(self):
+        """Stop the subproces"""
+        if self._pipe:
+            stop_command = ("stop", None)
+            process, pipe = self._pipe
+
+            pipe.send(stop_command)
+            process.join()
+
+
+def subprocess(pipe, reuse):
+    # Wait till we receive
+    # commands from the executer
+    while True:
+        command, data = pipe.recv()
+        if command == "stop":
+            break
+
+        elif command == "execute":
+            url = data[3]  # type: urlparse.SplitResult
+            addon = data[0]  # type: Addon
+
+            # Patch sys.argv to emulate what is expected
+            xbmc.session = tesseract = Tesseract(*data[:3], pipe=pipe)
+            sys.argv = (urlparse.urlunsplit([url.scheme, url.netloc, url.path, "", ""]), -1, "?{}".format(url.query))
+
+            # Execute the addon
+            try:
+                runpy.run_path(os.path.join(addon.path, addon.library), run_name="__main__")
+            except Exception as e:
+                logger.exception(e)
+                pipe.send((False, None))
+            else:
+                # Send back the results from the addon
+                resp = (tesseract.data.succeeded, tesseract.data)
+                pipe.send(resp)
+
+        # Break from loop to end the process
+        if reuse is False:
+            break
+
+
+def interactive(cmdargs):  # type: (argparse.Namespace) -> None
+    """Execute a given kodi plugin in interactive mode."""
+    # Load the given addon
+    # raise ValueError if addon is not valid
+    addon = Addon.from_path(cmdargs.addon)
+    cached = repo.LocalRepo(cmdargs.local_repos, cmdargs.remote_repos, addon)
+
+    # Create base kodi url
+    query = "content_type={}".format(cmdargs.content_type) if cmdargs.content_type else ""
+    # noinspection PyArgumentList
+    url_parts = urlparse.SplitResult("plugin", addon.id, "/", query, "")
+
+    # Convert any preselection into a list of selections
+    preselect = list(map(int, map(str.strip, cmdargs.preselect.split(",")))) if cmdargs.preselect else None
+    preselect.reverse()
+
+    # Keep track of parents
     parent_stack = []
+    executers = {}
 
-    while callback_url is not None:
-        if not callback_url.startswith(base_url):
-            raise RuntimeError("callback url is outside the scope of this addon: {}".format(callback_url))
+    while url_parts:
+        addon = cached.request_addon(url_parts.netloc)
 
-        # Execute the addon in a separate process
-        data = execute_addon(pluginpath, callback_url, content_type)
-        if data["succeeded"] is False:
+        if addon.id in executers:
+            executer = executers[addon.id]
+        else:
+            executer = Executer(addon, cached)
+            executers[addon.id] = executer
+
+        # Execute addon and check for succesfull execution
+        resp = executer.execute(url_parts)
+        if resp is False:
             print("Failed to execute addon. Please check log.")
             try:
-                input_raw("Press enter to continue:")
+                _input("Press enter to continue:")
             except KeyboardInterrupt:
                 break
 
             # Revert back to previous callback if one exists
             if parent_stack:
-                callback_url = parent_stack.pop()
-                continue
+                url_parts = parent_stack.pop()
             else:
                 break
-
-        # Item list with first item as the previous directory item
-        items = [{"label": "..", "path": parent_stack[-1]}] if parent_stack else []
-
-        # Display listitem selection if listitems are found
-        if data["listitem"]:
-            items.extend(item[1] for item in data["listitem"])
-        elif data["resolved"]:
-            items.append(data["resolved"])
-            items.extend(data["playlist"][1:])
-
-        # Display the list of listitems for user to select
-        if compact_mode:
-            selected_item = compact_item_selector(items, callback_url, preselect)
         else:
-            selected_item = detailed_item_selector(items, preselect, no_crop)
-
-        if selected_item:
-            if parent_stack and selected_item["path"] == parent_stack[-1]:
-                callback_url = parent_stack.pop()
-            else:
-                parent_stack.append(callback_url)
-                callback_url = selected_item["path"]
-        else:
-            break
-
-
-def execute_addon(*args):
-    """
-    Executes a add-on in a separate process.
-
-    :returns: A dictionary of listitems and other related results.
-    :rtype: dict
-    """
-    # Pips to handle passing of data from addon process to controler
-    pipe_recv, pipe_send = multiprocessing.Pipe(duplex=True)
-    process_args = [pipe_send]
-    process_args.extend(args)
-
-    # Create the new process that will execute the addon
-    p = multiprocessing.Process(target=subprocess, args=process_args)
-    p.start()
-
-    # Wait till we receive data from the addon process
-    while True:
-        data = pipe_recv.recv()
-        if "prompt" in data:
-            input_data = input_raw(data["prompt"])
-            pipe_recv.send(input_data)
-        else:
-            break
-
-    p.join()
-    return data
-
-
-def subprocess(pipe_send, pluginpath, callback_url, content_type):
-    """
-    Imports and executes the addon.
-
-    :param pipe_send: The communication object used for sending data back to the initiator.
-    :param unicode pluginpath: The path to the plugin to execute.
-    :param str callback_url: The url containing the route path and callback params.
-    :param str content_type: The content type to list, if more than one type is available.
-    """
-    addon_data = support_old.initializer(pluginpath)
-    support_old.data_pipe = pipe_send
-
-    # Splits callback into it's individual components
-    scheme, pluginid, selector, params, _ = urlparse.urlsplit(ensure_native_str(callback_url))
-    if params:
-        params = "?%s" % params
-
-    # Add content_type to params if more than one provider exists
-    elif len(addon_data.provides) > 1:
-        for ctype in addon_data.provides:
-            if content_type == ctype:
-                params = "?content_type={}".format(ctype)
+            url_parts = process_resp(resp, parent_stack, preselect, cmdargs)
+            if not url_parts:
                 break
+
+    # Stop all stored executer processes
+    for executer in executers.values():
+        executer.close()
+
+
+def process_resp(resp, parent_stack, preselect, cmdargs):
+    # type: (KodiData, List, List, argparse.Namespace) -> urlparse.SplitResult
+
+    # Item list with first item as the previous directory item
+    items = [{"label": "..", "path": parent_stack[-1]}] if parent_stack else []
+
+    # Load all availlable listitems
+    if resp.listitems:
+        items.extend(item[1] for item in resp.listitems)
+    elif resp.resolved:
+        items.append(resp.resolved)
+        items.extend(resp.playlist)
+
+    # Display the list of listitems for user
+    # to select if no pre selection was givin
+    if not preselect:
+        if cmdargs.compact_mode:
+            compact_item_selector(items)
         else:
-            # Default to the first provider if selected type was not found
-            params = "?content_type={}".format(addon_data.provides[0])
-            support_old.logger("Unable to find selected content_type '{}', defaulting to '{}'"
-                               .format(content_type, addon_data.provides[0]))
+            detailed_item_selector(items, cmdargs.no_crop)
 
-    # Patch sys.argv to emulate what is expected
-    sys.argv = (urlparse.urlunsplit([scheme, pluginid, selector, "", ""]), -1, params)
-
-    try:
-        addon = __import__(addon_data.source_dir)
-        addon.run()
-    finally:
-        # Send back the results from the addon
-        pipe_send.send(support_old.plugin_data)
+    # Return preselected item or ask user for selection
+    item = items[preselect.pop()] if preselect else user_choice(items)
+    if item:
+        path = item["path"]
+        return urlparse.urlsplit(path)
+    else:
+        return False
 
 
-def compact_item_selector(listitems, current, preselect):
+def compact_item_selector(listitems):
     """
     Displays a list of items along with the index to enable a user to select an item.
 
     :param list listitems: List of dictionarys containing all of the listitem data.
-    :param current: The current callback url.
-    :param list preselect: A list of pre selection to make.
     :returns: The selected item
     :rtype: dict
     """
@@ -171,13 +220,14 @@ def compact_item_selector(listitems, current, preselect):
     line_width = 400
     type_len = 8
 
-    # Create output list with headers
-    output = ["",
-              "=" * line_width,
-              "Current URL: %s" % current,
-              "-" * line_width,
-              "%s %s %s Listitem" % ("#".center(num_len + 1), "Label".ljust(title_len), "Type".ljust(type_len)),
-              "-" * line_width]
+    # # Create output list with headers
+    # output = ["",
+    #           "=" * line_width,
+    #           "Current URL: %s" % current,
+    #           "-" * line_width,
+    #           "%s %s %s Listitem" % ("#".center(num_len + 1), "Label".ljust(title_len), "Type".ljust(type_len)),
+    #           "-" * line_width]
+    output = []
 
     # Create a line output for each listitem entry
     for count, item in enumerate(listitems):
@@ -199,20 +249,12 @@ def compact_item_selector(listitems, current, preselect):
     output.append("-" * line_width)
     print("\n".join(output))
 
-    # Return preselected item or ask user to selection
-    if preselect:
-        print("Item %s has been pre-selected.\n" % preselect[0])
-        return listitems[preselect.pop(0)]
-    else:
-        return user_choice(listitems)
 
-
-def detailed_item_selector(listitems, preselect, no_crop):
+def detailed_item_selector(listitems, no_crop):
     """
     Displays a list of items along with the index to enable a user to select an item.
 
     :param list listitems: List of dictionarys containing all of the listitem data.
-    :param list preselect: A list of pre selection to make.
     :param bool no_crop: Disable croping of long lines of text if True, (default => False)
     :returns: The selected item
     :rtype: dict
@@ -220,7 +262,7 @@ def detailed_item_selector(listitems, preselect, no_crop):
     terminal_width = max(get_terminal_size((300, 25)).columns, 80)  # Ensures a line minimum of 80
 
     def line_limiter(text):
-        if isinstance(text, (bytes, unicode_type)):
+        if isinstance(text, (bytes, type(u""))):
             text = text.replace("\n", "").replace("\r", "")
         else:
             text = str(text)
@@ -253,16 +295,9 @@ def detailed_item_selector(listitems, preselect, no_crop):
     
     print("-" * terminal_width)
 
-    # Return preselected item or ask user to selection
-    if preselect:
-        print("Item %s has been pre-selected.\n" % preselect[0])
-        return listitems[preselect.pop(0)]
-    else:
-        return user_choice(listitems)
-
 
 def process_listitem(item):
-    label = re.sub("\[[^\]]+?\]", "", item.pop("label")).strip()
+    label = re.sub(r"\[[^\]]+?\]", "", item.pop("label")).strip()
     buffer = [("Label", label)]
 
     if "label2" in item:
@@ -335,7 +370,7 @@ def user_choice(items):
     while True:
         try:
             # Ask user for selection, Returning None if user entered nothing
-            choice = input_raw(prompt)
+            choice = _input(prompt)
             if not choice:
                 return None
 

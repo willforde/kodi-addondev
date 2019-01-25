@@ -35,9 +35,9 @@ class Dependency(object):
 
     # noinspection PyShadowingBuiltins
     def __init__(self, id, version, optional=False):  # type: (str, str, bool) -> None
-        self.optional = optional
-        self.version = version
-        self.id = id
+        self.optional = optional  # type: bool
+        self.version = version  # type: str
+        self.id = id  # type: str
 
     def __eq__(self, other):
         return other.id == self.id
@@ -48,17 +48,19 @@ class Dependency(object):
 
 class Addon(object):
     @classmethod
+    def from_path(cls, path):
+        # Load the given addon path, raise ValueError if addon is not valid
+        xml_path = os.path.join(path, "addon.xml")
+        if os.path.exists(xml_path):
+            return cls.from_file(xml_path)
+        else:
+            raise ValueError("'{}' is not a valid kodi addon, missing 'addon.xml'".format(path))
+
+    @classmethod
     def from_file(cls, xml_path):  # type: (str) -> Addon
         """Load addon data from addon.xml"""
         xml_node = ETree.parse(xml_path).getroot()
         return cls(xml_node, os.path.dirname(xml_path))
-
-    def reload(self, path):
-        """Reload the addon data from givin path."""
-        xml_path = os.path.join(path, "addon.xml")
-        self._xml = ETree.parse(xml_path).getroot()
-        self.type = self._point_type()
-        self.path = path
 
     def __init__(self, xml_node, path=""):  # type: (ETree.Element, str) -> None
         self.settings = None  # type: Dict[str, str]

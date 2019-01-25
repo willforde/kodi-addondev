@@ -27,14 +27,17 @@ MAX_AGE = 432000
 class Repo(object):
     """Check the official kodi repositories for available addons."""
 
-    def __init__(self, cached):
+    def __init__(self, cached, remote_repos):
         self.session = requests.session()
+        self.cached = cached
+        if remote_repos:
+            REPOS.extend(remote_repos)
 
         # Check if an update is scheduled
         self.check_file = os.path.join(CACHE_DIR, u"update_check")
         if self.update_required():
             logger.info("Checking for updates...")
-            self.update(cached)
+            self.update()
 
     @utils.CacheProperty
     def db(self):  # type: () -> Dict[str, Tuple[str, Addon]]
@@ -54,6 +57,9 @@ class Repo(object):
         # Returns a dict of addons with the addon id as key
         return addons
 
+    def __contains__(self, addon_id):
+        return addon_id in self.db
+
     def update_required(self):  # type: () -> bool
         """Return True if its time to update."""
         if os.path.exists(self.check_file):
@@ -64,10 +70,10 @@ class Repo(object):
             # Default to True when the check file is missing
             return True
 
-    def update(self, cached):
+    def update(self):
         """Check if any cached addon need updating."""
-        for addon in cached.values():
-            if addon.id not in self.db:
+        for addon in self.cached.values():
+            if addon.id not in self:
                 # We have a cached addon that no longer exists in the repo
                 warnings.warn("Cached Addon '{}' no longer available on kodi repo".format(addon.id))
 
@@ -80,9 +86,15 @@ class Repo(object):
         with open(self.check_file, "w", encoding="utf8") as stream:
             json.dump(timestamp, stream)
 
-    def download(self, dep):  # type: (Union[Dependency, Addon]) -> Addon
-        if dep.id not in self.db:
-            raise ValueError("Addon '{}' is not available on kodi repo".format(dep.id))
+    def download(self, dep):  # type: (Union[str, Dependency, Addon]) -> Addon
+        if isinstance(dep, str):
+            try:
+                dep = self.db[dep]
+            except KeyError:
+                raise KeyError("{} not found on remote repo".format(dep))
+
+        if dep.id not in self:
+            raise KeyError("{} not found on remote repo".format(dep))
         else:
             repo, addon = self.db[dep.id]
 
@@ -125,7 +137,8 @@ class Repo(object):
             shutil.rmtree(addon_dir)
 
         self.extract_zip(filepath)
-        addon.reload(addon_dir)
+        self.cached[addon.id] = addon
+        addon.path = addon_dir
         return addon
 
     @staticmethod
@@ -143,45 +156,77 @@ class Repo(object):
                 os.remove(filepath)
 
 
-def cached_addons(local_repos=None):  # type: (List[str]) -> Iterator[Addon]
-    """Retrun List of already download addons."""
+class LocalRepo(object):
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["repo"] = None
+        return state
 
-    def cache_dirs():
-        """Return a iterator of addon cache directorys."""
-        yield os.path.join(os.path.dirname(__file__), "data")
-        yield CACHE_DIR
-        if local_repos:
-            for repo_dir in local_repos:
-                yield os.path.realpath(repo_dir)
+    def __init__(self, local_repos, remote_repos, addon=None):  # type: (List, List, Addon) -> None
+        """Retrun List of already download addons."""
+        build_in = os.path.join(os.path.dirname(__file__), "data")
+        self.cached = dict(self._find_addons(build_in, CACHE_DIR))
+        self.local = dict(self._find_addons(*local_repos))
+        self.repo = Repo(self.cached, remote_repos)
+        if addon:
+            self.local[addon.id] = addon
 
-    # Search all cache directorys for kodi addons
-    for addons_dir in cache_dirs():
-        for filename in os.listdir(addons_dir):
-            path = os.path.join(addons_dir, filename, "addon.xml")
-            if os.path.exists(path):
-                yield Addon.from_file(path)
+    def __contains__(self, addon_id):  # type: (str) -> bool
+        return addon_id in self.cached or addon_id in self.local
 
-
-def process_dependencies(dependencies, local_repos):  # type: (List[Dependency], List[str]) -> Iterator[Addon]
-    """Process the list of requred dependencies, downloading any missing dependencies."""
-    cached = {addon.id: addon for addon in cached_addons(local_repos)}
-    repo = Repo(cached)
-
-    # Inject resource.language.en_gb requirement Kodi localized strings
-    dep = Dependency("resource.language.en_gb", "1.0.0")
-    dependencies.append(dep)
-
-    for dep in dependencies:
-        logger.info("Processing Dependency: %s", dep.id)
-        # Download dependency if not already downloaded
-        if dep.id not in cached or dep.version > cached[dep.id].version:
-            addon = repo.download(dep)
+    def __getitem__(self, addon_id):  # type: (str) -> Addon
+        """Return the addon from local repo."""
+        if addon_id in self.local:
+            return self.local[addon_id]
         else:
-            addon = cached[dep.id]
+            return self.cached[addon_id]
 
-        # Check if the dependency has dependencies
-        for extra_dep in addon.dependencies:
-            if extra_dep not in dependencies:
-                dependencies.append(extra_dep)
+    def load_dependencies(self, addon):  # type: (Addon) -> List
+        """Process all dependencies for givin addon and preload addon data."""
+        return list(self._process_dependencies(addon.dependencies))
 
-        yield addon
+    def request_addon(self, addon_id):  # type: (str) -> Addon
+        """Return addon from local repo if available else download from remote repo."""
+        try:
+            return self[addon_id]
+        except KeyError:
+            if self.repo and addon_id in self.repo:
+                addon = self.repo.download(addon_id)
+                self._process_dependencies(addon.dependencies)
+                return addon
+            else:
+                raise KeyError("{} not found".format(addon_id))
+
+    @staticmethod
+    def _find_addons(*paths):  # type: (str) -> Iterator[Tuple[str, Addon]]
+        """
+        Search givin paths for kodi addons.
+        Returning a tuple consisting of addon id and Addon object.
+        """
+        for addons_dir in paths:
+            for filename in os.listdir(addons_dir):
+                path = os.path.join(addons_dir, filename, "addon.xml")
+                if os.path.exists(path):
+                    addon = Addon.from_file(path)
+                    yield addon.id, addon
+
+    def _process_dependencies(self, dependencies):  # type: (List[Dependency]) -> Iterator[Addon]
+        """
+        Process the list of requred dependencies,
+        downloading any missing dependencies.
+        """
+        for dep in dependencies:
+            # Download dependency if not already downloaded
+            if dep.id not in self or dep.version > self[dep.id].version:
+                addon = self.repo.download(dep)
+            else:
+                addon = self[dep.id]
+
+            # Check if the dependency has dependencies
+            for extra_dep in addon.dependencies:
+                if extra_dep not in dependencies:
+                    dependencies.append(extra_dep)
+
+            # Preload addon data
+            addon.preload()
+            yield addon.id

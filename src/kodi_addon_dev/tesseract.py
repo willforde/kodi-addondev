@@ -1,6 +1,5 @@
 # Standard Library Imports
 from typing import Dict, List
-from copy import deepcopy
 import xbmcgui
 import logging
 import shutil
@@ -20,7 +19,7 @@ except NameError:
     _input = input
 
 # Package imports
-from . import repo, utils
+from . import utils
 from .support import Addon, logger, KODI_HOME
 
 # Kodi log levels
@@ -72,22 +71,8 @@ def setup_env():  # type: () -> Dict[str, str]
 
 
 class KodiData(object):
-    """
-    :type pipe: multiprocessing.Connection
-    """
-    def __getstate__(self):
-        state = deepcopy(self.__dict__)
-        state["_pipe"] = None
-        return state
-
-    def __init__(self, pipe=None):
-        self._pipe = pipe
+    def __init__(self):
         self._data = {}
-
-    def feedback(self):
-        """Send data back to caller through multiprocessing communication pipe"""
-        if self._pipe:
-            self._pipe.send(self)
 
     @property
     def sortmethods(self):  # type: () -> List[int]
@@ -127,7 +112,7 @@ class KodiData(object):
 
     @property
     def succeeded(self):  # type: () -> bool
-        return self._data.get("succeeded", None)
+        return self._data.get("succeeded", False)
 
     @succeeded.setter
     def succeeded(self, succeeded):  # type: (bool) -> None
@@ -149,38 +134,24 @@ class Tesseract(object):
     """
     Process running addon and all it's dependencies.
 
-    :param str addon_path: Path to the add-on.
-    :param list repos: List of unofficial kodi repos to use.
+    :param Addon addon: The currently running add-on.
     :param pipe: The connection pipe to use when running under a separate process
     :type pipe: multiprocessing.Connection
     """
 
-    def __init__(self, addon_path, repos, local_repos, pipe=None):
-        # Add custom kodi repos to repo list
-        if repos:
-            repo.REPOS.extend(repos)
-
-        # Load the given addon path, raise ValueError if addon is not valid
-        xml_path = os.path.join(addon_path, "addon.xml")
-        if os.path.exists(xml_path):
-            addon = Addon.from_file(xml_path)
-        else:
-            raise ValueError("'{}' is not a valid kodi addon, missing 'addon.xml'".format(addon_path))
+    def __init__(self, addon, deps, cached, pipe=None):
+        self.id = addon.id
+        self.data = KodiData()
+        self.kodipaths = setup_env()
+        self.addons = cached
+        self.pipe = pipe
 
         # Reverse sys path to allow
         # for faster list insertion
         sys.path.reverse()
 
-        self.id = addon.id
-        self.data = KodiData()
-        self.pipe_conn = pipe
-        self.kodipaths = setup_env()
-        self.addons = {addon.id: addon.preload()}  # type: Dict[str, Addon]
-
         # Process all dependencies and download any missing dependencies
-        for dep in repo.process_dependencies(addon.dependencies, local_repos):
-            self.addons[dep.id] = dep.preload()
-
+        for dep in map(cached.__getitem__, deps):
             if dep.type == "xbmc.python.module":
                 path = os.path.join(dep.path, os.path.normpath(dep.library))
                 sys.path.append(path)
@@ -228,9 +199,10 @@ class Tesseract(object):
         Ask the user a question and return the answer.
         Works even when running under a separate process.
         """
-        pipe = self.pipe_conn
+        pipe = self.pipe
         if pipe:
-            pipe.send({"prompt": prompt})
+            request = ("prompt", prompt)
+            pipe.send(request)
             return pipe.recv()
         else:
             return _input(prompt)

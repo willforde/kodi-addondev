@@ -1,12 +1,12 @@
 # Standard Library Imports
 import argparse
 import logging
-import sys
 import os
 
 # Package imports
-from .utils import ensure_unicode, unicode_cmdargs
-from .support import logger
+from .interactive import interactive
+from .utils import unicode_cmdargs
+from .support import logger, Addon
 
 
 class RealPath(argparse.Action):
@@ -29,6 +29,7 @@ class AppendSplitter(argparse.Action):
         items = self.default if isinstance(self.default, list) else []
         items.extend(value.strip() for value in values.split(","))
         setattr(namespace, self.dest, items)
+        # TODO: Find a better way to process muitiple arg values
 
 
 # Create Parser to parse the required arguments
@@ -52,7 +53,7 @@ parser.add_argument("-t", "--content-type",
                     help="Type of content that the addon provides. Used when there is more than one type specified"
                     "within provides section of addon.xml. If this is not set it will default to video.")
 
-parser.add_argument("-o", "--custom-repos", action=AppendSplitter, dest="repos",
+parser.add_argument("-o", "--custom-repos", action=AppendSplitter, dest="remote_repos",
                     help="Comma separated list of custom repo urls.")
 
 parser.add_argument("-l", "--local-repos", action=AppendSplitter, dest="local_repos",
@@ -62,30 +63,12 @@ parser.add_argument("-l", "--local-repos", action=AppendSplitter, dest="local_re
 def main():
     # Parse the cli arguments
     args = parser.parse_args()
-
-    # Enable debug logging if logging flag was given
     if args.debug:
+        # Enable debug logging
         logger.setLevel(logging.DEBUG)
 
-    # Convert any preselection into a list of selections
-    preselect = list(map(int, map(str.strip, args.preselect.split(",")))) if args.preselect else None
-
     # Execute the addon in interactive mode
-    plugin_path = args.addon
-    arguments = [plugin_path, preselect]
-    if args.content_type:
-        arguments.append(args.content_type)
-
-    # Check if plugin actually exists
-    if os.path.exists(plugin_path):
-        interactive(*arguments, compact_mode=args.compact, no_crop=args.no_crop)
-
-    # Check if we are already in the requested plugin directory if pluginpath was a plugin id
-    elif args.pluginpath.startswith("plugin.") and os.path.basename(os.getcwd()) == args.pluginpath:
-        arguments[0] = ensure_unicode(os.getcwd(), sys.getfilesystemencoding())
-        interactive(*arguments, compact_mode=args.compact, no_crop=args.no_crop)
-    else:
-        raise RuntimeError("unable to find requested add-on: {}".format(plugin_path.encode("utf8")))
+    interactive(addon, args)
 
 
 # This is only here for development
