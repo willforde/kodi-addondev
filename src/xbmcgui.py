@@ -713,9 +713,6 @@ class ListItem(dict):
         """
         self["selected"] = selected
 
-    def __repr__(self):
-        return "{}('{}')".format(self.__class__.__name__, self.getLabel())
-
 
 # noinspection PyUnusedLocal, PyMethodMayBeStatic, PyShadowingBuiltins, PyPep8Naming
 class Dialog(object):

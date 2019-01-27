@@ -1,12 +1,11 @@
 # Standard Library Imports
 import functools
-import argparse
 import sys
-import os
 
 # Package imports
 from . import tesseract, repo
 from .support import Addon
+from .utils import RealPath, RealPathList
 import xbmc
 
 # Third party imports
@@ -24,26 +23,6 @@ except ImportError:
     from collections import MutableMapping
 
 
-class RealPath(argparse.Action):
-    """
-    Custom action to convert given path to a full canonical path,
-    eliminating any symbolic links if encountered.
-    """
-    def __call__(self, _, namespace, value, option_string=None):
-        setattr(namespace, self.dest, os.path.realpath(value))
-
-
-class AppendSplitter(argparse.Action):
-    """
-    Custom action to split multiple parameters which are
-    separated by a comma, and append then to a default list.
-    """
-    def __call__(self, _, namespace, values, option_string=None):
-        items = self.default if isinstance(self.default, list) else []
-        items.extend(value.strip() for value in values.split(","))
-        setattr(namespace, self.dest, items)
-
-
 def pytest_addoption(parser):
     """Add command line arguments related to this pluging."""
     group = parser.getgroup("kodi-addondev", "kodi addon testing support")
@@ -54,14 +33,16 @@ def pytest_addoption(parser):
         help="Path to the kodi addon being tested.")
     group.addoption(
         "--custom-repos",
-        action=AppendSplitter,
         dest="remote_repos",
-        help="Comma separated list of custom repo urls.")
+        help="List of custom repo urls, separated by a space.",
+        action=RealPathList,
+        nargs="+")
     group.addoption(
         "--local-repos",
-        action=AppendSplitter,
         dest="local_repos",
-        help="Comma separated list of directorys where kodi addons are stored..")
+        help="List of directorys where kodi addons are stored, separated by a space.",
+        action=RealPathList,
+        nargs="+")
 
 
 def pytest_configure(config):

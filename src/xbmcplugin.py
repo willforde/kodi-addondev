@@ -197,7 +197,6 @@ def endOfDirectory(handle, succeeded=True, updateListing=False, cacheToDisc=True
     """
     xbmc.session.data.succeeded = succeeded
     xbmc.session.data.updatelisting = updateListing
-    xbmc.session.data.feedback()
 
 
 # noinspection PyShadowingBuiltins, PyUnusedLocal, PyPep8Naming
@@ -308,7 +307,6 @@ def setResolvedUrl(handle, succeeded, listitem):
     """
     xbmc.session.data.resolved = listitem
     xbmc.session.data.succeeded = succeeded
-    xbmc.session.data.feedback()
 
 
 # noinspection PyShadowingBuiltins, PyUnusedLocal, PyPep8Naming

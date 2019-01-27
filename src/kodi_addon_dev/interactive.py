@@ -10,9 +10,10 @@ import sys
 import re
 import os
 
-from . import repo
+
 from .support import Addon, logger
 from .tesseract import Tesseract, KodiData
+import xbmcgui
 import xbmc
 
 try:
@@ -32,6 +33,33 @@ try:
     _input = input_raw
 except NameError:
     _input = input
+
+
+def interactive(cmdargs, cached, url_parts):
+    # Keep track of parents
+    parent_stack = []  # type: List[urlparse.SplitResult]
+    executers = {}
+
+    while url_parts:
+        # Request the addon related to kodi plugin url
+        addon = cached.request_addon(url_parts.netloc)
+
+        # Reuse executer if available
+        if addon.id in executers:
+            executer = executers[addon.id]
+        else:
+            executer = Executer(addon, cached)
+            executers[addon.id] = executer
+
+        # Execute addon and check for succesfull execution
+        resp = executer.execute(url_parts)
+        url_parts = handle_resp(resp, parent_stack, cmdargs, url_parts)
+        if url_parts is False:
+            break
+
+    # Stop all stored executer processes
+    for executer in executers.values():
+        executer.close()
 
 
 class Executer(object):
@@ -67,17 +95,22 @@ class Executer(object):
         # Wait till we receive data from the addon process
         while True:
             status, data = pipe.recv()
+
+            # Check if user input is requested
             if status == "prompt":
+                # Prompt the user for input and
+                # send it back to the subprocess
                 input_data = _input(data)
                 pipe.send(input_data)
-            elif status is False:
-                resp = False
-                break
+
             else:
-                resp = data
+                # Check if execution failed
+                resp = status if status is False else data
                 break
 
-        if not self.reuse:
+        # Wait for the subprocess to finish before
+        # proceeding if it's not going to be reused
+        if not self.reuse and process.is_alive():
             process.join()
         return resp
 
@@ -87,6 +120,7 @@ class Executer(object):
             stop_command = ("stop", None)
             process, pipe = self._pipe
 
+            # Send stop command
             pipe.send(stop_command)
             process.join()
 
@@ -95,10 +129,13 @@ def subprocess(pipe, reuse):
     # Wait till we receive
     # commands from the executer
     while True:
+        # Stop the subprocess
+        # This is required when reusing the subprocess
         command, data = pipe.recv()
         if command == "stop":
             break
 
+        # Execute the addon
         elif command == "execute":
             url = data[3]  # type: urlparse.SplitResult
             addon = data[0]  # type: Addon
@@ -107,80 +144,63 @@ def subprocess(pipe, reuse):
             xbmc.session = tesseract = Tesseract(*data[:3], pipe=pipe)
             sys.argv = (urlparse.urlunsplit([url.scheme, url.netloc, url.path, "", ""]), -1, "?{}".format(url.query))
 
-            # Execute the addon
             try:
-                runpy.run_path(os.path.join(addon.path, addon.library), run_name="__main__")
+                # Execute the addon
+                path = os.path.splitext(addon.library)[0]
+                runpy.run_module(path, run_name="__main__", alter_sys=False)
+
+            # Addon must have directly raised an error
             except Exception as e:
                 logger.exception(e)
-                pipe.send((False, None))
+                pipe.send((False, False))
+
             else:
                 # Send back the results from the addon
                 resp = (tesseract.data.succeeded, tesseract.data)
                 pipe.send(resp)
 
-        # Break from loop to end the process
+        # If this subprocess will not be reused then
+        # break from loop to end the process
         if reuse is False:
             break
 
 
-def interactive(cmdargs):  # type: (argparse.Namespace) -> None
-    """Execute a given kodi plugin in interactive mode."""
-    # Load the given addon
-    # raise ValueError if addon is not valid
-    addon = Addon.from_path(cmdargs.addon)
-    cached = repo.LocalRepo(cmdargs.local_repos, cmdargs.remote_repos, addon)
+def handle_resp(resp, parent_stack, cmdargs, url_parts):
+    if resp is False:
+        print("Failed to execute addon. Please check log.")
+        try:
+            _input("Press enter to continue:")
+        except KeyboardInterrupt:
+            return False
 
-    # Create base kodi url
-    query = "content_type={}".format(cmdargs.content_type) if cmdargs.content_type else ""
-    # noinspection PyArgumentList
-    url_parts = urlparse.SplitResult("plugin", addon.id, "/", query, "")
-
-    # Convert any preselection into a list of selections
-    preselect = list(map(int, map(str.strip, cmdargs.preselect.split(",")))) if cmdargs.preselect else None
-    preselect.reverse()
-
-    # Keep track of parents
-    parent_stack = []
-    executers = {}
-
-    while url_parts:
-        addon = cached.request_addon(url_parts.netloc)
-
-        if addon.id in executers:
-            executer = executers[addon.id]
+        # Revert back to previous callback if one exists
+        if parent_stack:
+            return parent_stack.pop()
         else:
-            executer = Executer(addon, cached)
-            executers[addon.id] = executer
+            return False
+    else:
+        items = process_resp(resp, parent_stack, cmdargs)
 
-        # Execute addon and check for succesfull execution
-        resp = executer.execute(url_parts)
-        if resp is False:
-            print("Failed to execute addon. Please check log.")
-            try:
-                _input("Press enter to continue:")
-            except KeyboardInterrupt:
-                break
-
-            # Revert back to previous callback if one exists
-            if parent_stack:
-                url_parts = parent_stack.pop()
-            else:
-                break
+        selecter = cmdargs.preselect.pop() if cmdargs.preselect else user_choice(len(items))
+        if parent_stack and selecter == 0:
+            return parent_stack.pop()
+        elif selecter is None:
+            return False
         else:
-            url_parts = process_resp(resp, parent_stack, preselect, cmdargs)
-            if not url_parts:
-                break
+            # Return preselected item or ask user for selection
+            parent_stack.append(url_parts)
+            item = items[selecter]
+            path = item["path"]
 
-    # Stop all stored executer processes
-    for executer in executers.values():
-        executer.close()
+            # Split up the kodi url
+            return urlparse.urlsplit(path)
 
 
-def process_resp(resp, parent_stack, preselect, cmdargs):
-    # type: (KodiData, List, List, argparse.Namespace) -> Union[bool, urlparse.SplitResult]
+def process_resp(resp, parent_stack, cmdargs):
+    # type: (KodiData, List[urlparse.SplitResult], argparse.Namespace) -> List[xbmcgui.ListItem]
 
     # Item list with first item as the previous directory item
-    items = [{"label": "..", "path": parent_stack[-1]}] if parent_stack else []
+    items = [{"label": "..", "path": parent_stack[-1].geturl()}] if parent_stack else []
 
     # Load all availlable listitems
     if resp.listitems:
@@ -191,19 +211,14 @@ def process_resp(resp, parent_stack, preselect, cmdargs):
 
     # Display the list of listitems for user
     # to select if no pre selection was givin
-    if not preselect:
-        if cmdargs.compact_mode:
+    if not cmdargs.preselect:
+        if cmdargs.compact:
             compact_item_selector(items)
         else:
             detailed_item_selector(items, cmdargs.no_crop)
 
-    # Return preselected item or ask user for selection
-    item = items[preselect.pop()] if preselect else user_choice(items)
-    if item:
-        path = item["path"]
-        return urlparse.urlsplit(path)
-    else:
-        return False
+    # Return the full list of listitems
+    return items
 
 
 def compact_item_selector(listitems):
@@ -231,7 +246,7 @@ def compact_item_selector(listitems):
 
     # Create a line output for each listitem entry
     for count, item in enumerate(listitems):
-        label = re.sub("\[[^\]]+?\]", "", item.pop("label")).strip()
+        label = re.sub(r"\[[^\]]+?\]", "", item.pop("label")).strip()
 
         if item["path"].startswith("plugin://"):
             if item.get("properties", {}).get("isplayable") == "true":
@@ -243,7 +258,8 @@ def compact_item_selector(listitems):
         else:
             item_type = "playable"
 
-        line = "%s. %s %s %s" % (str(count).rjust(num_len), label.ljust(title_len), item_type.ljust(type_len), item)
+        line = "{}. {} {} Listitem({})".format(str(count).rjust(num_len), label.ljust(title_len),
+                                               item_type.ljust(type_len), item)
         output.append(line)
 
     output.append("-" * line_width)
@@ -358,37 +374,26 @@ def decode_args(matchobj):
         return matchobj.group(1)
 
 
-def user_choice(items):
-    """
-    Returns the selected item from provided items or None if nothing was selected.
-
-    :param list items: List of items to choice from
-    :returns: The selected item
-    :rtype: dict
-    """
-    prompt = "Choose an item: "
+def user_choice(valid_range):  # type: (int) -> Union[int, None]
+    """Ask user to select an item, returning selection as an integer."""
     while True:
         try:
             # Ask user for selection, Returning None if user entered nothing
-            choice = _input(prompt)
-            if not choice:
-                return None
-
-            # Convert choice to an integer and reutrn the selected item
-            choice = int(choice)
-            item = items[choice]
-
-            # Return the item if it's a plugin path
-            if item["path"].startswith("plugin://"):
-                print("")
-                return item
-            else:
-                prompt = "Selection is not a valid plugin path, Please choose again: "
-
-        except ValueError:
-            prompt = "You entered a non-integer, Choice must be an integer: "
-        except IndexError:
-            prompt = "You entered an invalid integer, Choice must be from above list: "
-        except (EOFError, KeyboardInterrupt):
-            # User skipped the prompt
+            choice = _input("Choose an item: ")
+        except KeyboardInterrupt:
             return None
+
+        if choice:
+            try:
+                # Convert choice to an integer
+                choice = int(choice)
+            except ValueError:
+                print("You entered a non-integer value, Choice must be an integer")
+        else:
+            return None
+
+        # Check if choice is within the valid range
+        if choice <= valid_range:
+            return choice
+        else:
+            print("Choise is out of range, Please choose from above list.")

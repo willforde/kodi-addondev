@@ -169,7 +169,7 @@ class LocalRepo(object):
         self.local = dict(self._find_addons(*local_repos))
         self.repo = Repo(self.cached, remote_repos)
         if addon:
-            self.local[addon.id] = addon
+            self.local[addon.id] = addon.preload()
 
     def __contains__(self, addon_id):  # type: (str) -> bool
         return addon_id in self.cached or addon_id in self.local
@@ -193,7 +193,7 @@ class LocalRepo(object):
             if self.repo and addon_id in self.repo:
                 addon = self.repo.download(addon_id)
                 self._process_dependencies(addon.dependencies)
-                return addon
+                return addon.preload()
             else:
                 raise KeyError("{} not found".format(addon_id))
 
@@ -215,6 +215,9 @@ class LocalRepo(object):
         Process the list of requred dependencies,
         downloading any missing dependencies.
         """
+        dep = Dependency("resource.language.en_gb", "1.0.0", False)
+        dependencies.append(dep)
+
         for dep in dependencies:
             # Download dependency if not already downloaded
             if dep.id not in self or dep.version > self[dep.id].version:

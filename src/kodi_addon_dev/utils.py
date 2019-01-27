@@ -1,5 +1,7 @@
 # Standard Library Imports
+import argparse
 import sys
+import os
 
 PY3 = sys.version_info >= (3, 0)
 unicode_type = type(u"")
@@ -25,6 +27,39 @@ class CacheProperty(object):
             return attr
         else:
             return self
+
+
+class RealPath(argparse.Action):
+    """
+    Custom action to convert given path to a full canonical path.
+    Eliminating any symbolic links, expanding user path and environment variables if encountered.
+    """
+    def __call__(self, _, namespace, value, option_string=None):
+        value = unicode_cmdargs(value)
+        path = fullpath(value)
+        setattr(namespace, self.dest, path)
+
+
+class RealPathList(argparse.Action):
+    """
+    Custom action to convert a list of path to a full canonical list of paths.
+    Eliminating any symbolic links, expanding user path and environment variables if encountered.
+    """
+    def __call__(self, _, namespace, values, option_string=None):
+        values = map(unicode_cmdargs, values)
+        values = map(fullpath, values)
+        setattr(namespace, self.dest, list(values))
+
+
+class CommaList(argparse.Action):
+    """
+    Custom action to split multiple parameters which are
+    separated by a comma, and append then to a empty list.
+    """
+    def __call__(self, _, namespace, values, option_string=None):
+        values = unicode_cmdargs(values)
+        items = [value.strip() for value in values.split(",")]
+        setattr(namespace, self.dest, items)
 
 
 def ensure_native_str(data, encoding="utf8"):
@@ -79,3 +114,11 @@ def unicode_cmdargs(cmdarg):
                 # If this fails then we are fucked
     else:
         return cmdarg
+
+
+def fullpath(path):  # type: (str) -> str
+    """
+    Converts given path to a full canonical path. Eliminating any symbolic links,
+    expanding user path and environment variables if encountered.
+    """
+    return os.path.realpath(os.path.expanduser(os.path.expandvars(path)))
