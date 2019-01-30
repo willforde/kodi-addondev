@@ -78,7 +78,7 @@ def subprocess(pipe, reuse):  # type: (mp.Connection, bool) -> None
 class PRunner(object):
     def __init__(self, cached, addon):  # type: (LocalRepo, Addon) -> None
         self.deps = cached.load_dependencies(addon)
-        self.reuse = True  # addon.reuse_lang_invoker
+        self.reuse = False  # addon.reuse_lang_invoker
         self.cached = cached
         self.addon = addon
 
