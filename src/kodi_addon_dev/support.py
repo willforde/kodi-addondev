@@ -3,6 +3,7 @@ from typing import Iterator, Tuple, List, Dict
 import xml.etree.ElementTree as ETree
 from codecs import open as _open
 from xml.dom import minidom
+import hashlib
 import tempfile
 import logging
 import sys
@@ -112,6 +113,14 @@ class Addon(object):
     @property
     def summary(self):  # type: () -> str
         return self._text_lang("summary")
+
+    @property
+    def reuse_lang_invoker(self):  # type: () -> bool
+        node = self._xml.find("extension/reuselanguageinvoker")
+        if node is None:
+            return False
+        else:
+            return node.text.lower() == "true"
 
     def _text_lang(self, name):  # type: (str) -> str
         # Attemp to find elements with en_GB first then fallback to en_US if not found.
@@ -259,3 +268,7 @@ class Addon(object):
 
     def __repr__(self):
         return "Addon(id={})".format(self.id)
+
+    def __hash__(self):
+        addon_id = self.id if isinstance(self.id, bytes) else self.id.encode("utf8")
+        return int(hashlib.sha256(addon_id).hexdigest(), 16)

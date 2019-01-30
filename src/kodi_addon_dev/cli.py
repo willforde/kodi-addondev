@@ -4,7 +4,7 @@ import logging
 
 # Package imports
 from . import repo
-from .interactive import interactive
+from .interactive import Interact
 from .utils import RealPath, RealPathList, CommaList
 from .support import logger, Addon
 
@@ -27,7 +27,7 @@ parser.add_argument("-c", "--compact", action="store_true",
                     help="Compact view, one line per listitem.")
 
 parser.add_argument("-n", "--no-crop", action="store_true",
-                    help="Disable croping of long lines of text when in detailed mode.")
+                    help="Disable croping of long lines of text.")
 
 parser.add_argument("-p", "--preselect", action=CommaList, default=[],
                     help="Comma separated list of pre selections")
@@ -50,6 +50,9 @@ def main():
         # Enable debug logging
         logger.setLevel(logging.DEBUG)
 
+    # Reverse the list of preselection for faster access
+    cmdargs.preselect.reverse()
+
     # Load the given addon
     addon = Addon.from_path(cmdargs.addon)
     cached = repo.LocalRepo(cmdargs.local_repos, cmdargs.remote_repos, addon)
@@ -59,11 +62,9 @@ def main():
     url = "plugin://{}/?{}".format(addon.id, query)
     url_parts = urlparse.urlsplit(url)
 
-    # Reverse the list of preselection for faster access
-    cmdargs.preselect.reverse()
-
     # Execute the addon in interactive mode
-    interactive(cmdargs, cached, url_parts)
+    inter = Interact(cmdargs, cached)
+    inter.start(url_parts)
 
 
 # This is only here for development

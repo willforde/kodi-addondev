@@ -181,7 +181,7 @@ class LocalRepo(object):
         else:
             return self.cached[addon_id]
 
-    def load_dependencies(self, addon):  # type: (Addon) -> List
+    def load_dependencies(self, addon):  # type: (Addon) -> List[str]
         """Process all dependencies for givin addon and preload addon data."""
         return list(self._process_dependencies(addon.dependencies))
 
@@ -210,7 +210,7 @@ class LocalRepo(object):
                     addon = Addon.from_file(path)
                     yield addon.id, addon
 
-    def _process_dependencies(self, dependencies):  # type: (List[Dependency]) -> Iterator[Addon]
+    def _process_dependencies(self, dependencies):  # type: (List[Dependency]) -> Iterator[str]
         """
         Process the list of requred dependencies,
         downloading any missing dependencies.

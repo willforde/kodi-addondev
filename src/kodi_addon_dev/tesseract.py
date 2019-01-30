@@ -1,5 +1,6 @@
 # Standard Library Imports
 from typing import Dict, List
+import multiprocessing as mp
 import xbmcgui
 import logging
 import shutil
@@ -20,6 +21,7 @@ except NameError:
 
 # Package imports
 from . import utils
+from .repo import LocalRepo
 from .support import Addon, logger, KODI_HOME
 
 # Kodi log levels
@@ -72,6 +74,7 @@ def setup_env():  # type: () -> Dict[str, str]
 
 class KodiData(object):
     def __init__(self):
+        self.path = None  # type: str
         self._data = {}
 
     @property
@@ -139,7 +142,7 @@ class Tesseract(object):
     :type pipe: multiprocessing.Connection
     """
 
-    def __init__(self, addon, deps, cached, pipe=None):
+    def __init__(self, addon, deps, cached, pipe=None):  # type: (Addon, List[str], LocalRepo, mp.Connection) -> None
         self.id = addon.id
         self.data = KodiData()
         self.kodipaths = setup_env()
