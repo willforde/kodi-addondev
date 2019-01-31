@@ -64,7 +64,7 @@ def subprocess(pipe, reuse):  # type: (mp.Connection, bool) -> None
 
                 # Addon must have directly raised an error
                 except Exception as e:
-                    logger.exception(e)
+                    logger.debug(e, exc_info=True)
                     pipe.send((False, False))
 
                 else:
@@ -78,7 +78,7 @@ def subprocess(pipe, reuse):  # type: (mp.Connection, bool) -> None
                 break
 
     except BaseException as e:
-        logger.exception(e)
+        logger.debug(e, exc_info=True)
         pipe.send((False, False))
 
 
@@ -140,7 +140,7 @@ class PRunner(object):
                     return False if status is False else data
 
         except Exception as e:
-            logger.exception(e)
+            logger.debug(e, exc_info=True)
 
         # SubProcess exited unexpectedly
         return False
@@ -218,7 +218,7 @@ class Interact(object):
             pass
 
         except Exception as e:
-            logger.exception(e)
+            logger.debug(e, exc_info=True)
             print("Sorry :(, Something went really wrong.")
 
         # Stop all stored saved processes
@@ -266,7 +266,7 @@ class Display(object):
         # Ensures a line minimum of 80
         self.terminal_width = max(get_terminal_size((300, 25)).columns, 80)
 
-    def show(self, items, current_path):  # type: (List[Dict[str, Any]]) -> int
+    def show(self, items, current_path):
         line_width = self.line_width
 
         # Create output list with headers
