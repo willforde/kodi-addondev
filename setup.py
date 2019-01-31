@@ -2,6 +2,7 @@
 from setuptools import setup as finalize, find_packages
 from codecs import open
 from glob import glob
+import sys
 import os
 
 # Setup parameters
@@ -119,10 +120,9 @@ setup.update(
     include_package_data=True
 )
 
-setup["entry_points"] = {
-    "console_scripts": ["kodi-addon-dev=kodi_addon_dev.cli:main"],
-    "pytest11": ["kodi-addon-dev=kodi_addon_dev.plugin"]
-}
+setup["entry_points"] = points = {"pytest11": ["kodi-addon-dev=kodi_addon_dev.plugin"]}
+if sys.version_info >= (3, 0):
+    points["console_scripts"] = ["kodi-addon-dev=kodi_addon_dev.__main__:main"]
 
 
 # ############### Classifiers ############### #

@@ -6,6 +6,7 @@ from xml.dom import minidom
 import hashlib
 import tempfile
 import logging
+import shutil
 import sys
 import re
 import os
@@ -14,12 +15,11 @@ import os
 import appdirs
 
 # Package imports
-from . import utils
+from kodi_addon_dev import utils
 
 IGNORE_LIST = ("xbmc.python", "xbmc.core", "kodi.resource")
 EXT_POINTS = ("xbmc.python.pluginsource", "xbmc.python.module")
 CACHE_DIR = appdirs.user_cache_dir("kodi-addondev")
-KODI_HOME = tempfile.mkdtemp(prefix="kodi-addondev.")
 
 # Base logger
 logger = logging.getLogger("kodi-addondev")
@@ -28,6 +28,40 @@ handler.setFormatter(logging.Formatter("%(relativeCreated)-13s %(levelname)7s: %
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
+# TODO: Setup logger to log to a file
+
+# Kodi directory paths
+KODI_HOME = os.path.join(tempfile.gettempdir(), "kodi-addondev.WM_Esa")
+KPATHS = {"home": KODI_HOME, "xbmc": KODI_HOME}
+
+# Kodi userdata paths
+KPATHS["userdata"] = KPATHS["profile"] = KPATHS["masterprofile"] = userdata = os.path.join(KODI_HOME, "userdata")
+KPATHS["videoplaylists"] = os.path.join(userdata, "playlists", "video")
+KPATHS["musicplaylists"] = os.path.join(userdata, "playlists", "music")
+KPATHS["addon_data"] = os.path.join(userdata, "addon_data")
+KPATHS["thumbnails"] = os.path.join(userdata, "Thumbnails")
+KPATHS["database"] = os.path.join(userdata, "Database")
+
+# Kodi temp paths
+KPATHS["temp"] = temp = os.path.join(KODI_HOME, "temp")
+KPATHS["subtitles"] = temp
+KPATHS["recordings"] = temp
+KPATHS["screenshots"] = temp
+KPATHS["logpath"] = temp
+KPATHS["cdrips"] = temp
+KPATHS["skin"] = temp
+
+
+def setup_paths(clean):  # type: (bool) -> None
+    """Ensure that the mock kodi directory is setup and cleaned if required."""
+    if clean:
+        shutil.rmtree(KODI_HOME)
+
+    # Ensure that all directories exists
+    # The use of 'set' is to remove duplicate directory for to speed up loop
+    for kodi_path in set(KPATHS.values()):
+        if not os.path.exists(kodi_path):
+            os.makedirs(kodi_path)
 
 
 class Dependency(object):
@@ -100,7 +134,7 @@ class Addon(object):
 
     @property
     def profile(self):  # type: () -> str
-        return os.path.join(KODI_HOME, "userdata", "addon_data", self.id)
+        return os.path.join(KPATHS["addon_data"], self.id)
 
     @property
     def description(self):  # type: () -> str

@@ -12,8 +12,8 @@ import os
 import requests
 
 # Package imports
-from . import utils
-from .support import Addon, Dependency, logger, CACHE_DIR
+from kodi_addon_dev import utils
+from kodi_addon_dev.support import Addon, Dependency, logger, CACHE_DIR
 
 # Python 2 compatibility
 if not utils.PY3:
@@ -165,8 +165,8 @@ class LocalRepo(object):
     def __init__(self, local_repos, remote_repos, addon=None):  # type: (List, List, Addon) -> None
         """Retrun List of already download addons."""
         build_in = os.path.join(os.path.dirname(__file__), "data")
-        self.cached = dict(self._find_addons(build_in, CACHE_DIR))
-        self.local = dict(self._find_addons(*local_repos))
+        self.cached = dict(self._find_addons(CACHE_DIR))
+        self.local = dict(self._find_addons(build_in, *local_repos))
         self.repo = Repo(self.cached, remote_repos)
         if addon:
             self.local[addon.id] = addon.preload()

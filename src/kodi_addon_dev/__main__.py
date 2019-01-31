@@ -3,10 +3,10 @@ import argparse
 import logging
 
 # Package imports
-from . import repo
-from .interactive import Interact
-from .utils import RealPath, RealPathList, CommaList
-from .support import logger, Addon
+from kodi_addon_dev import repo
+from kodi_addon_dev.interactive import Interact
+from kodi_addon_dev.utils import RealPath, RealPathList, CommaList
+from kodi_addon_dev.support import logger, Addon, setup_paths
 
 try:
     import urllib.parse as urlparse
@@ -17,7 +17,7 @@ except ImportError:
 
 # Create Parser to parse the required arguments
 parser = argparse.ArgumentParser(description="Execute kodi plugin")
-parser.add_argument("addon", action=RealPath,
+parser.add_argument("path", metavar="addon", action=RealPath,
                     help="The path to the addon that will be executed. Path can be full or relative.")
 
 parser.add_argument("-d", "--debug", action="store_true",
@@ -29,17 +29,20 @@ parser.add_argument("-c", "--compact", action="store_true",
 parser.add_argument("-n", "--no-crop", action="store_true",
                     help="Disable croping of long lines of text.")
 
-parser.add_argument("-p", "--preselect", action=CommaList, default=[],
+parser.add_argument("-s", "--clean-slate", action="store_true",
+                    help="Wipe the mock kodi directory, and start with a clean slate.")
+
+parser.add_argument("-p", "--preselect", metavar="1,2", action=CommaList, default=[],
                     help="Comma separated list of pre selections")
 
-parser.add_argument("-t", "--content-type",
+parser.add_argument("-t", "--content-type", metavar="type",
                     help="Type of content that the addon provides. Used when there is more than one type specified"
                     "within provides section of addon.xml. If this is not set it will default to video.")
 
-parser.add_argument("-o", "--custom-repos", dest="remote_repos", nargs="+", action=RealPathList, default=[],
+parser.add_argument("-r", "--remote-repos", metavar="url", nargs="+", action=RealPathList, default=[],
                     help="List of custom repo urls, separated by a space.")
 
-parser.add_argument("-l", "--local-repos", dest="local_repos", nargs="+", action=RealPathList, default=[],
+parser.add_argument("-l", "--local-repos", metavar="path", nargs="+", action=RealPathList, default=[],
                     help="List of directorys where kodi addons are stored, separated by a space.")
 
 
@@ -53,8 +56,11 @@ def main():
     # Reverse the list of preselection for faster access
     cmdargs.preselect.reverse()
 
+    # Wipe the mock kodi directory, If requested
+    setup_paths(cmdargs.clean_slate)
+
     # Load the given addon
-    addon = Addon.from_path(cmdargs.addon)
+    addon = Addon.from_path(cmdargs.path)
     cached = repo.LocalRepo(cmdargs.local_repos, cmdargs.remote_repos, addon)
 
     # Create base kodi url

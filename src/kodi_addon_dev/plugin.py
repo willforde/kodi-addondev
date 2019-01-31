@@ -3,9 +3,9 @@ import functools
 import sys
 
 # Package imports
-from . import tesseract, repo
-from .support import Addon
-from .utils import RealPath, RealPathList
+from kodi_addon_dev import tesseract, repo
+from kodi_addon_dev.support import Addon
+from kodi_addon_dev.utils import RealPath, RealPathList
 import xbmc
 
 # Third party imports
@@ -29,20 +29,27 @@ def pytest_addoption(parser):
     group.addoption(
         "--addon-path",
         action=RealPath,
-        dest="addon",
+        metavar="path",
+        dest="path",
         help="Path to the kodi addon being tested.")
     group.addoption(
-        "--custom-repos",
-        dest="remote_repos",
+        "--remote-repos",
         help="List of custom repo urls, separated by a space.",
         action=RealPathList,
+        metavar="url",
+        default=[],
         nargs="+")
     group.addoption(
         "--local-repos",
-        dest="local_repos",
         help="List of directorys where kodi addons are stored, separated by a space.",
         action=RealPathList,
+        metavar="path",
+        default=[],
         nargs="+")
+    group.addoption(
+        "--clean-slate",
+        action="store_true",
+        help="Wipe the mock kodi directory, and start with a clean slate.")
 
 
 def pytest_configure(config):

@@ -1,9 +1,8 @@
 # Standard Library Imports
-from typing import Dict, List
+from typing import List
 import multiprocessing as mp
 import xbmcgui
 import logging
-import shutil
 import sys
 import os
 
@@ -20,9 +19,9 @@ except NameError:
     _input = input
 
 # Package imports
-from . import utils
-from .repo import LocalRepo
-from .support import Addon, logger, KODI_HOME
+from kodi_addon_dev import utils
+from kodi_addon_dev.repo import LocalRepo
+from kodi_addon_dev.support import Addon, logger, KPATHS
 
 # Kodi log levels
 log_levels = (logging.DEBUG,  # xbmc.LOGDEBUG
@@ -33,43 +32,6 @@ log_levels = (logging.DEBUG,  # xbmc.LOGDEBUG
               logging.CRITICAL,  # xbmc.LOGSEVERE
               logging.CRITICAL,  # xbmc.LOGFATAL
               logging.DEBUG)  # xbmc.LOGNONE
-
-
-def setup_env():  # type: () -> Dict[str, str]
-    # Kodi directory paths
-    paths = {"home": KODI_HOME, "xbmc": KODI_HOME}
-
-    # Kodi userdata paths
-    paths["userdata"] = paths["profile"] = paths["masterprofile"] = userdata = os.path.join(KODI_HOME, "userdata")
-    paths["videoplaylists"] = os.path.join(userdata, "playlists", "video")
-    paths["musicplaylists"] = os.path.join(userdata, "playlists", "music")
-    paths["addon_data"] = os.path.join(userdata, "addon_data")
-    paths["thumbnails"] = os.path.join(userdata, "Thumbnails")
-    paths["database"] = os.path.join(userdata, "Database")
-
-    # Kodi temp paths
-    paths["temp"] = temp = os.path.join(KODI_HOME, "temp")
-    paths["subtitles"] = temp
-    paths["recordings"] = temp
-    paths["screenshots"] = temp
-    paths["logpath"] = temp
-    paths["cdrips"] = temp
-    paths["skin"] = temp
-
-    # Ensure that there are no leftover temp directorys
-    tmpdir = os.path.dirname(KODI_HOME)
-    for filename in os.listdir(tmpdir):
-        if filename.startswith("kodi-addondev."):
-            filepath = os.path.join(tmpdir, filename)
-            shutil.rmtree(filepath, ignore_errors=True)
-
-    # Ensure that all directories exists
-    for kodi_path in paths.values():
-        if not os.path.exists(kodi_path):
-            os.makedirs(kodi_path)
-
-    # The full list of kodi special paths
-    return paths
 
 
 class KodiData(object):
@@ -143,10 +105,9 @@ class Tesseract(object):
     """
 
     def __init__(self, addon, deps, cached, pipe=None):  # type: (Addon, List[str], LocalRepo, mp.Connection) -> None
-        self.id = addon.id
         self.data = KodiData()
-        self.kodipaths = setup_env()
         self.addons = cached
+        self.id = addon.id
         self.pipe = pipe
 
         # Reverse sys path to allow
@@ -181,7 +142,8 @@ class Tesseract(object):
         lvl = log_levels[lvl]
         logger.log(lvl, msg)
 
-    def translate_path(self, path):  # type: (str) -> str
+    @staticmethod
+    def translate_path(path):  # type: (str) -> str
         path = utils.ensure_native_str(path)
         parts = urlparse.urlsplit(path)
 
@@ -191,7 +153,7 @@ class Tesseract(object):
 
         # Fetch realpath from the path mapper
         try:
-            realpath = self.kodipaths[parts.netloc]
+            realpath = KPATHS[parts.netloc]
         except KeyError:
             raise ValueError("%s is not a valid special directory" % parts.netloc)
         else:

@@ -10,9 +10,10 @@ import sys
 import re
 import os
 
-from .repo import LocalRepo
-from .support import Addon, logger
-from .tesseract import Tesseract, KodiData
+# Package imports
+from kodi_addon_dev.repo import LocalRepo
+from kodi_addon_dev.support import Addon, logger
+from kodi_addon_dev.tesseract import Tesseract, KodiData
 import xbmc
 
 try:
@@ -29,56 +30,62 @@ except ImportError:
 
 try:
     # noinspection PyUnresolvedReferences
-    _input = input_raw
+    _input = raw_input
 except NameError:
     _input = input
 
 
 def subprocess(pipe, reuse):  # type: (mp.Connection, bool) -> None
-    # Wait till we receive
-    # commands from the executer
-    while True:
-        # Stop the subprocess
-        # This is required when reusing the subprocess
-        command, data = pipe.recv()  # type: (str, Tuple[Addon, List[str], LocalRepo, urlparse.SplitResult])
-        if command == "stop":
-            break
+    try:
+        # Wait till we receive
+        # commands from the executer
+        while True:
+            # Stop the subprocess
+            # This is required when reusing the subprocess
+            command, data = pipe.recv()  # type: (str, Tuple[Addon, List[str], LocalRepo, urlparse.SplitResult])
+            if command == "stop":
+                break
 
-        # Execute the addon
-        elif command == "execute":
-            addon, deps, cached, url = data
-            # Patch sys.argv to emulate what is expected
-            sys.argv = (urlparse.urlunsplit([url.scheme, url.netloc, url.path, "", ""]), -1, "?{}".format(url.query))
+            # Execute the addon
+            elif command == "execute":
+                addon, deps, cached, url = data
+                # Patch sys.argv to emulate what is expected
+                urllist = [url.scheme, url.netloc, url.path, "", ""]
+                sys.argv = (urlparse.urlunsplit(urllist), -1, "?{}".format(url.query))
 
-            try:
-                # Create tesseract to handle kodi module interactions
-                xbmc.session = tesseract = Tesseract(addon, deps, cached, pipe=pipe)
-                tesseract.data.path = url.geturl()
+                try:
+                    # Create tesseract to handle kodi module interactions
+                    xbmc.session = tesseract = Tesseract(addon, deps, cached, pipe=pipe)
+                    tesseract.data.path = url.geturl()
 
-                # Execute the addon
-                path = os.path.splitext(addon.library)[0]
-                runpy.run_module(path, run_name="__main__", alter_sys=False)
+                    # Execute the addon
+                    path = os.path.splitext(addon.library)[0]
+                    runpy.run_module(path, run_name="__main__", alter_sys=False)
 
-            # Addon must have directly raised an error
-            except Exception as e:
-                logger.exception(e)
-                pipe.send((False, False))
+                # Addon must have directly raised an error
+                except Exception as e:
+                    logger.exception(e)
+                    pipe.send((False, False))
 
-            else:
-                # Send back the results from the addon
-                resp = (tesseract.data.succeeded, tesseract.data)
-                pipe.send(resp)
+                else:
+                    # Send back the results from the addon
+                    resp = (tesseract.data.succeeded, tesseract.data)
+                    pipe.send(resp)
 
-        # If this subprocess will not be reused then
-        # break from loop to end the process
-        if reuse is False:
-            break
+            # If this subprocess will not be reused then
+            # break from loop to end the process
+            if reuse is False:
+                break
+
+    except BaseException as e:
+        logger.exception(e)
+        pipe.send((False, False))
 
 
 class PRunner(object):
     def __init__(self, cached, addon):  # type: (LocalRepo, Addon) -> None
         self.deps = cached.load_dependencies(addon)
-        self.reuse = False  # addon.reuse_lang_invoker
+        self.reuse = True  # addon.reuse_lang_invoker
         self.cached = cached
         self.addon = addon
 
@@ -100,34 +107,43 @@ class PRunner(object):
                 self._process = process
             return process
 
-    def execute(self, url_parts):  # type: (urlparse.SplitResult) -> KodiData
-        # Construct command and send to sub process for execution
-        command = ("execute", (self.addon, self.deps, self.cached, url_parts))
-        process, pipe = self.process, self.pipe
-        pipe.send(command)
+    def execute(self, url_parts):  # type: (urlparse.SplitResult) -> Union[KodiData, bool]
+        try:
+            # Construct command and send to sub process for execution
+            command = ("execute", (self.addon, self.deps, self.cached, url_parts))
+            process, pipe = self.process, self.pipe
+            pipe.send(command)
 
-        # Wait till we receive data from the addon process
-        while True:
-            # TODO: Look into timeouts for pipes
-            status, data = pipe.recv()
+            # Wait till we receive data from the addon process
+            while process.is_alive():
+                # Wait to receive data from pipe before continuing
+                # If no data was received within one second, check
+                # to make sure that the process is still alive
+                if pipe.poll(1):
+                    status, data = pipe.recv()
+                else:
+                    continue
 
-            # Check if user input is requested
-            if status == "prompt":
-                # Prompt the user for input and
-                # send it back to the subprocess
-                input_data = _input(data)
-                pipe.send(input_data)
+                # Check if user input is requested
+                if status == "prompt":
+                    # Prompt the user for input and
+                    # send it back to the subprocess
+                    try:
+                        input_data = _input(data)
+                    except KeyboardInterrupt:
+                        pipe.send("")
+                    else:
+                        pipe.send(input_data)
 
-            else:
-                # Check if execution failed before breaking
-                resp = False if status is False else data
-                break
+                else:
+                    # Check if execution failed before returning
+                    return False if status is False else data
 
-        # Wait for the subprocess to finish before
-        # proceeding if it's not going to be reused
-        if not self.reuse and process.is_alive():
-            process.join()
-        return resp
+        except Exception as e:
+            logger.exception(e)
+
+        # SubProcess exited unexpectedly
+        return False
 
     def stop(self):
         """Stop the subproces."""
@@ -164,38 +180,46 @@ class Interact(object):
         self.pm = PManager(cached)
 
     def start(self, request):  # type: (urlparse.SplitResult) -> None
-        while request:
-            if isinstance(request, urlparse.SplitResult):
-                # Request the addon & process manager related to the kodi plugin id
-                addon = self.cached.request_addon(request.netloc)
-                runner = self.pm[addon]  # type: PRunner
+        try:
+            while request:
+                if isinstance(request, urlparse.SplitResult):
+                    # Request the addon & process manager related to the kodi plugin id
+                    addon = self.cached.request_addon(request.netloc)
+                    runner = self.pm[addon]  # type: PRunner
 
-                # Execute addon in subprocess
-                resp = runner.execute(request)
-                if resp is False:
-                    request = self.handle_failed()
-                    continue
-            else:
-                # This must be the parent object
-                resp = request
+                    # Execute addon in subprocess
+                    resp = runner.execute(request)
+                    if resp is False:
+                        request = self.handle_failed()
+                        continue
+                else:
+                    # This must be the parent object
+                    resp = request
 
-            # Process the response and convert into a list of items
-            items = self.process_resp(resp)
-            selector = self.preselect.pop() if self.preselect else self.display.show(items)
+                # Process the response and convert into a list of items
+                items = self.process_resp(resp)
+                selector = self.preselect.pop() if self.preselect else self.display.show(items, resp.path)
 
-            # Fetch the selected listitem and start the loop again
-            if selector == 0 and self.parent_stack:
-                request = self.parent_stack.pop()
-            elif selector is None:
-                break
-            else:
-                # Return preselected item or ask user for selection
-                self.parent_stack.append(resp)
-                item = items[selector]
-                path = item["path"]
+                # Fetch the selected listitem and start the loop again
+                if selector == 0 and self.parent_stack:
+                    request = self.parent_stack.pop()
+                elif selector is None:
+                    break
+                else:
+                    # Return preselected item or ask user for selection
+                    self.parent_stack.append(resp)
+                    item = items[selector]
+                    path = item["path"]
 
-                # Split up the kodi url
-                request = urlparse.urlsplit(path)
+                    # Split up the kodi url
+                    request = urlparse.urlsplit(path)
+
+        except KeyboardInterrupt:
+            pass
+
+        except Exception as e:
+            logger.exception(e)
+            print("Sorry :(, Something went really wrong.")
 
         # Stop all stored saved processes
         self.pm.close()
@@ -205,7 +229,6 @@ class Interact(object):
         Report to user that addon has failed to execute.
         Returning previous list if one exists.
         """
-        # TODO: Setup logger to log to a file
         print("Failed to execute addon. Please check log.")
 
         # Parse script and wait for user input
@@ -238,19 +261,33 @@ class Display(object):
     def __init__(self, compact, no_crop):  # type: (bool, bool) -> None
         self.crop = not no_crop
         self.compact = compact
+        self.line_width = 80
 
-    def show(self, items):  # type: (List[Dict[str, Any]]) -> int
+        # Ensures a line minimum of 80
+        self.terminal_width = max(get_terminal_size((300, 25)).columns, 80)
+
+    def show(self, items, current_path):  # type: (List[Dict[str, Any]]) -> int
+        line_width = self.line_width
+
+        # Create output list with headers
+        output = ["",
+                  "=" * line_width,
+                  current_path,
+                  "-" * line_width]
+
+
+
         # Display the list of listitems for user
         # to select if no pre selection was givin
         if self.compact:
-            self.compact_item_selector(items)
+            self.compact_item_selector(output, items)
         else:
-            self.detailed_item_selector(items)
+            self.detailed_item_selector(output, items)
 
         # Return the full list of listitems
         return self.user_choice(len(items))
 
-    def compact_item_selector(self, listitems):
+    def compact_item_selector(self, output, listitems):
         """
         Displays a list of items along with the index to enable a user to select an item.
 
@@ -264,18 +301,9 @@ class Display(object):
         line_width = 400
         type_len = 8
 
-        # # Create output list with headers
-        # output = ["",
-        #           "=" * line_width,
-        #           "Current URL: %s" % current,
-        #           "-" * line_width,
-        #           "%s %s %s Listitem" % ("#".center(num_len + 1), "Label".ljust(title_len), "Type".ljust(type_len)),
-        #           "-" * line_width]
-        output = []
-
         # Create a line output for each listitem entry
         for count, item in enumerate(listitems):
-            label = re.sub(r"\[[^\]]+?\]", "", item.pop("label")).strip()
+            label = re.sub(r"\[[^\]]+?\]", "", item["label"]).strip()
 
             if item["path"].startswith("plugin://"):
                 if item.get("properties", {}).get("isplayable") == "true":
@@ -294,7 +322,7 @@ class Display(object):
         output.append("-" * line_width)
         print("\n".join(output))
 
-    def detailed_item_selector(self, listitems):
+    def detailed_item_selector(self, output, listitems):
         """
         Displays a list of items along with the index to enable a user to select an item.
 
