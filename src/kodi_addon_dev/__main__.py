@@ -17,33 +17,38 @@ except ImportError:
 
 # Create Parser to parse the required arguments
 parser = argparse.ArgumentParser(description="Execute kodi plugin")
-parser.add_argument("path", metavar="addon", action=RealPath,
-                    help="The path to the addon that will be executed. Path can be full or relative.")
+run_group = parser.add_argument_group(
+    title="Interactive Mode",
+    description="Arguments related to runing a kodi addon in interactive and debug mode"
+)
 
-parser.add_argument("-d", "--debug", action="store_true",
-                    help="Show debug logging output")
+run_group.add_argument("path", metavar="addon", action=RealPath,
+                       help="The path to the addon that will be executed. Path can be full or relative.")
 
-parser.add_argument("-c", "--compact", action="store_true",
-                    help="Compact view, one line per listitem.")
+run_group.add_argument("-d", "--debug", action="store_true",
+                       help="Show debug logging output")
 
-parser.add_argument("-n", "--no-crop", action="store_true",
-                    help="Disable croping of long lines of text.")
+run_group.add_argument("-c", "--compact", action="store_true",
+                       help="Compact view, one line per listitem.")
 
-parser.add_argument("-s", "--clean-slate", action="store_true",
-                    help="Wipe the mock kodi directory, and start with a clean slate.")
+run_group.add_argument("-n", "--no-crop", action="store_true",
+                       help="Disable croping of long lines of text.")
 
-parser.add_argument("-p", "--preselect", metavar="1,2", action=CommaList, default=[],
-                    help="Comma separated list of pre selections")
+run_group.add_argument("-s", "--clean-slate", action="store_true",
+                       help="Wipe the mock kodi directory, and start with a clean slate.")
 
-parser.add_argument("-t", "--content-type", metavar="type",
-                    help="Type of content that the addon provides. Used when there is more than one type specified"
-                    "within provides section of addon.xml. If this is not set it will default to video.")
+run_group.add_argument("-p", "--preselect", metavar="1,2", action=CommaList, default=[],
+                       help="Comma separated list of pre selections")
 
-parser.add_argument("-r", "--remote-repos", metavar="url", nargs="+", action=RealPathList, default=[],
-                    help="List of custom repo urls, separated by a space.")
+run_group.add_argument("-t", "--content-type", metavar="type",
+                       help="Type of content that the addon provides. Used when there is more than one type specified"
+                       "within provides section of addon.xml. If this is not set it will default to video.")
 
-parser.add_argument("-l", "--local-repos", metavar="path", nargs="+", action=RealPathList, default=[],
-                    help="List of directorys where kodi addons are stored, separated by a space.")
+run_group.add_argument("-r", "--remote-repos", metavar="url", nargs="+", action=RealPathList, default=[],
+                       help="List of custom repo urls, separated by a space.")
+
+run_group.add_argument("-l", "--local-repos", metavar="path", nargs="+", action=RealPathList, default=[],
+                       help="List of directorys where kodi addons are stored, separated by a space.")
 
 
 def main():
