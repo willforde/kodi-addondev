@@ -1,6 +1,7 @@
 # Standard Library Imports
-from typing import Union, List, Dict, Any, Tuple
+from typing import Union, List, Dict, Any, Tuple, Iterator
 import multiprocessing as mp
+from copy import deepcopy
 import binascii
 import argparse
 import pickle
@@ -13,6 +14,7 @@ import os
 # Package imports
 from kodi_addon_dev.repo import LocalRepo
 from kodi_addon_dev.support import Addon, logger
+from kodi_addon_dev.utils import ensure_native_str
 from kodi_addon_dev.tesseract import Tesseract, KodiData
 import xbmc
 
@@ -35,7 +37,7 @@ except NameError:
     _input = input
 
 
-def subprocess(pipe, reuse):  # type: (mp.Connection, bool) -> None
+def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
     try:
         # Wait till we receive
         # commands from the executer
@@ -176,7 +178,7 @@ class Interact(object):
         self.cached = cached
         self.args = cmdargs
 
-        self.display = Display(cmdargs.compact, cmdargs.no_crop)
+        self.display = Display(cmdargs.detailed, cmdargs.no_crop, cached)
         self.pm = PManager(cached)
 
     def start(self, request):  # type: (urlparse.SplitResult) -> None
@@ -217,9 +219,9 @@ class Interact(object):
         except KeyboardInterrupt:
             pass
 
-        except Exception as e:
-            logger.debug(e, exc_info=True)
-            print("Sorry :(, Something went really wrong.")
+        # except Exception as e:
+        #     logger.debug(e, exc_info=True)
+        #     print("Sorry :(, Something went really wrong.")
 
         # Stop all stored saved processes
         self.pm.close()
@@ -258,71 +260,64 @@ class Interact(object):
 
 
 class Display(object):
-    def __init__(self, compact, no_crop):  # type: (bool, bool) -> None
+    def __init__(self, detailed, no_crop, cached):  # type: (bool, bool, LocalRepo) -> None
+        self.detailed = detailed
         self.crop = not no_crop
-        self.compact = compact
+        self.cached = cached
         self.line_width = 80
 
-        # Ensures a line minimum of 80
-        self.terminal_width = max(get_terminal_size((300, 25)).columns, 80)
+    @property
+    def terminal_width(self):
+        """Ensures a line minimum of 80."""
+        return max(get_terminal_size((300, 25)).columns, 80)
 
-    def show(self, items, current_path):
+    def show(self, items, current_path):  # type: (List[Dict[str, Any]], str) -> int
         line_width = self.line_width
 
         # Create output list with headers
-        output = ["",
-                  "=" * line_width,
-                  current_path,
-                  "-" * line_width]
+        output = ["=" * line_width, current_path, "-" * line_width]
 
-
-
-        # Display the list of listitems for user
-        # to select if no pre selection was givin
-        if self.compact:
-            self.compact_item_selector(output, items)
+        # Display the list of listitems for user to select
+        if self.detailed:
+            self.detailed_view(items)
         else:
-            self.detailed_item_selector(output, items)
+            lines = self.compact_view(items)
+            output.extend(lines)
+
+        output.append("-" * self.line_width)
+        print("\n".join(output))
 
         # Return the full list of listitems
         return self.user_choice(len(items))
 
-    def compact_item_selector(self, output, listitems):
-        """
-        Displays a list of items along with the index to enable a user to select an item.
+    def compact_view(self, items):  # type: (List[Dict[str, Any]]) -> Iterator[str]
+        """Displays a list of items along with the index to enable a user to select an item."""
 
-        :param list listitems: List of dictionarys containing all of the listitem data.
-        :returns: The selected item
-        :rtype: dict
-        """
         # Calculate the max length of required lines
-        title_len = max(len(item["label"].strip()) for item in listitems) + 1
-        num_len = len(str(len(listitems) - 1))
-        line_width = 400
-        type_len = 8
+        title_len = max(len(item["label"].strip()) for item in items) + 1
+        num_len = len(str(len(items)))
 
         # Create a line output for each listitem entry
-        for count, item in enumerate(listitems):
-            label = re.sub(r"\[[^\]]+?\]", "", item["label"]).strip()
+        for count, item in enumerate(items):
+            item = deepcopy(item)
 
-            if item["path"].startswith("plugin://"):
-                if item.get("properties", {}).get("isplayable") == "true":
-                    item_type = "video"
-                elif label == ".." or item.get("properties", {}).get("folder") == "true":
-                    item_type = "folder"
-                else:
-                    item_type = "script"
-            else:
-                item_type = "playable"
+            # Folder/Video icon, + for Folder, - for Video
+            isfolder = item.get("properties", {}).get("folder") == "true"
+            item_type = "+" if isfolder else "-"
 
-            line = "{}. {} {} Listitem({})".format(str(count).rjust(num_len), label.ljust(title_len),
-                                                   item_type.ljust(type_len), item)
-            output.append(line)
+            # Decode path & context path components
+            item["path"] = self.decode_path(item["path"])
+            if "context" in item:
+                item["context"] = [(name, self.decode_path(command)) for name, command in item["context"]]
 
-        output.append("-" * line_width)
-        print("\n".join(output))
+            # Remove Label formating
+            label = re.sub(r"\[[^\]]+?\]", "", item.pop("label", "UNKNOWN")).strip()
+            label = self.localize(label)
 
-    def detailed_item_selector(self, output, listitems):
+            # Construct the output line
+            yield "{}. {} {} Listitem({})".format(str(count).rjust(num_len), item_type, label.ljust(title_len), item)
+
+    def detailed_view(self, listitems):
         """
         Displays a list of items along with the index to enable a user to select an item.
 
@@ -330,7 +325,7 @@ class Display(object):
         :returns: The selected item
         :rtype: dict
         """
-        terminal_width = max(get_terminal_size((300, 25)).columns, 80)  # Ensures a line minimum of 80
+        terminal_width = self.terminal_width
 
         def line_limiter(text):
             if isinstance(text, (bytes, type(u""))):
@@ -350,81 +345,63 @@ class Display(object):
             process_items = self.process_listitem(item.copy())
 
             # Calculate the max length of property name
-            size_of_name = max(16, *[len(name) for name, _ in process_items])  # Ensures a minimum spaceing of 16
+            size_of_name = max(16, *map(len, process_items))  # Ensures a minimum spaceing of 16
 
-            label = "%s. %s" % (count, process_items.pop(0)[1])
+            label = "{}. {}".format(count, process_items.pop("label"))
+
             if count == 0:
-                print("{}".format("#" * 80))
+                print("{}".format("#" * self.line_width))
             else:
-                print("\n\n{}".format("#" * 80))
+                print("\n\n{}".format("#" * self.line_width))
 
             print(line_limiter(label))
-            print("{}".format("#" * 80))
+            print("{}".format("#" * self.line_width))
 
-            for key, value in process_items:
-                print(key.ljust(size_of_name), line_limiter(value))
+            for key, value in process_items.items():
+                if isinstance(value, list):
+                    print("{}:".format(key.title()))
+                    for name, text in value:
+                        print("- {}{}".format(name.ljust(size_of_name), text))
+                else:
+                    print(key.title().ljust(size_of_name), value)
 
         print("-" * terminal_width)
 
-    def process_listitem(self, item):
+    def process_listitem(self, item):  # type: (Any) -> Dict[str, List[Tuple[str, str]]]
         label = re.sub(r"\[[^\]]+?\]", "", item.pop("label")).strip()
-        buffer = [("Label", label)]
+        buffer = {"label": self.localize(label)}
 
         if "label2" in item:
-            buffer.append(("Label 2", item.pop("label2").strip()))
+            buffer["label2"] = self.localize(item.pop("label2").strip())
 
         if "path" in item:
             path = item.pop("path")
             if path.startswith("plugin://"):
-                buffer.append(("Path:", ""))
+                buffer["path"] = sub = []
+
                 parts = urlparse.urlsplit(path)
-                buffer.append(("- pluginid", parts.netloc))
-                if parts.path:
-                    buffer.append(("- selecter", parts.path))
+
+                sub.append(("addon_id", parts.netloc))
+                sub.append(("selector", parts.path if parts.path else "/"))
 
                 if parts.query:
-                    query = urlparse.parse_qsl(parts.query)
-                    for key, value in query:
-                        if key == "_json_":
-                            data = json.loads(binascii.unhexlify(value))
-                            if isinstance(data, dict):
-                                query.extend(data.items())
-                        elif key == "_pickle_":
-                            data = pickle.loads(binascii.unhexlify(value))
-                            if isinstance(data, dict):
-                                query.extend(data.items())
-                        else:
-                            buffer.append(("- {}".format(key), value))
+                    # Decode query string before parsing
+                    query = self.decode_path(parts.query)
+                    query = urlparse.parse_qsl(query)
+                    sub.extend(query)
             else:
-                buffer.append(("Path", path))
+                buffer["path"] = path
 
         if "context" in item:
-            context = item.pop("context")
-            buffer.append(("Context:", ""))
-            for name, command in context:
-                command = re.sub(r"_(?:pickle|json)_=([0-9a-f]+)", self.decode_args, command, flags=re.IGNORECASE)
-                buffer.append(("- {}".format(name), command))
+            buffer["context"] = [(self.localize(name), self.decode_path(command)) for name, command in item.pop("context")]
 
         for key, value in item.items():
             if isinstance(value, dict):
-                buffer.append(("{}:".format(key.title()), ""))
-                for sub_key, sub_value in value.items():
-                    buffer.append(("- {}".format(sub_key), sub_value))
+                buffer[key] = [(sub_key, sub_value) for sub_key, sub_value in value.items()]
             else:
-                buffer.append((key.title(), value))
+                buffer["key"] = value
 
         return buffer
-
-    def decode_args(self, matchobj):
-        hex_type = matchobj.group(0)
-        hex_code = matchobj.group(1)
-
-        if hex_type.startswith("_json_"):
-            return str(json.loads(binascii.unhexlify(hex_code)))
-        elif hex_type.startswith("_pickle_"):
-            return str((pickle.loads(binascii.unhexlify(hex_code))))
-        else:
-            return matchobj.group(1)
 
     def user_choice(self, valid_range):  # type: (int) -> Union[int, None]
         """Ask user to select an item, returning selection as an integer."""
@@ -446,6 +423,46 @@ class Display(object):
 
             # Check if choice is within the valid range
             if choice <= valid_range:
+                print("")
                 return choice
             else:
                 print("Choise is out of range, Please choose from above list.")
+
+    @staticmethod
+    def decode_path(path):  # type: (str) -> str
+        def decode(match):
+            key = match.group(1)  # First part of params
+            value = match.group(2)  # Second part of params
+
+            try:
+                # Decode values from a binascii encoded object
+                if key == "_json_":
+                    value = json.loads(binascii.unhexlify(value))
+                elif key == "_pickle_":
+                    value = pickle.loads(binascii.unhexlify(value))
+
+            # Ignore any errors and just return the match untouched
+            except Exception as e:
+                logger.exception(e)
+                return match.group(0)
+
+            else:
+                # Reconstruct the url component
+                return "{}={}".format(key, value)
+
+        # Search & replace matching values
+        path = ensure_native_str(path)
+        return re.sub(r"(_pickle_|_json_)=([0-9a-f]+)", decode, path, flags=re.IGNORECASE)
+
+    def localize(self, text):
+        def decode(match):
+            # Localize the localization string
+            strings = self.cached.request_addon("resource.language.en_gb").strings
+            string_id = int(match.group(1))
+
+            # Return the localized string if available else leave string untouched
+            return strings[string_id] if string_id in strings else match.group(0)
+
+        # Search & replace matching LOCALIZE strings
+        text = ensure_native_str(text)
+        return re.sub(r"\$LOCALIZE\[(\d+)\]", decode, text)

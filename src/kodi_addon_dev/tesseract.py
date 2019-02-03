@@ -1,5 +1,5 @@
 # Standard Library Imports
-from typing import List
+from typing import List, Tuple
 import multiprocessing as mp
 import xbmcgui
 import logging
@@ -48,7 +48,7 @@ class KodiData(object):
         return self._data.setdefault("playlist", [])
 
     @property
-    def listitems(self):  # type: () -> List[xbmcgui.ListItem]
+    def listitems(self):  # type: () -> List[Tuple[str, xbmcgui.ListItem, bool]]
         return self._data.setdefault("listitems", [])
 
     @property
@@ -104,7 +104,7 @@ class Tesseract(object):
     :type pipe: multiprocessing.Connection
     """
 
-    def __init__(self, addon, deps, cached, pipe=None):  # type: (Addon, List[str], LocalRepo, mp.Connection) -> None
+    def __init__(self, addon, deps, cached, pipe=None):  # type: (Addon, List[str], LocalRepo, mp.connection) -> None
         self.data = KodiData()
         self.addons = cached
         self.id = addon.id

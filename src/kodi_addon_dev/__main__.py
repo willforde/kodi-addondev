@@ -28,13 +28,13 @@ run_group.add_argument("path", metavar="addon", action=RealPath,
 run_group.add_argument("-d", "--debug", action="store_true",
                        help="Show debug logging output")
 
-run_group.add_argument("-c", "--compact", action="store_true",
-                       help="Compact view, one line per listitem.")
+run_group.add_argument("-e", "--detailed", action="store_true",
+                       help="Show listitems in a detailed view.")
 
 run_group.add_argument("-n", "--no-crop", action="store_true",
                        help="Disable croping of long lines of text.")
 
-run_group.add_argument("-s", "--clean-slate", action="store_true",
+run_group.add_argument("-c", "--clean-slate", action="store_true",
                        help="Wipe the mock kodi directory, and start with a clean slate.")
 
 run_group.add_argument("-p", "--preselect", metavar="1,2", action=CommaList, default=[],

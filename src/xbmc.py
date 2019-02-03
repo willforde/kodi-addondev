@@ -125,8 +125,8 @@ def _normalize_filename(filename):
     :rtype: str
     """
     value = unicodedata.normalize('NFKD', ensure_unicode(filename)).encode("ascii", "ignore").decode("ascii")
-    value = re.sub('[^\w\s-]', '', value).strip().lower()
-    value = re.sub('[-\s]+', '-', value)
+    value = re.sub(r'[^\w\s-]', '', value).strip().lower()
+    value = re.sub(r'[-\s]+', '-', value)
     return ensure_native_str(value)
 
 
@@ -281,7 +281,7 @@ def getCleanMovieTitle(path, usefoldername=False):
     if usefoldername:
         title = os.path.basename(directory)
 
-    year = re.search('\((\d\d\d\d)\)', title)
+    year = re.search(r'\((\d\d\d\d)\)', title)
     if year:
         title = title.replace(year.group(), "")
         year = year.group(1)

@@ -562,7 +562,7 @@ class ListItem(dict):
             self.list.getSelectedItem().setProperty('AspectRatio', '1.85 : 1')
             self.list.getSelectedItem().setProperty('StartOffset', '256.4')
         """
-        self.setdefault("properties", {})[key] = xbmc.ensure_unicode(value)
+        self.setdefault("properties", {})[key.lower()] = xbmc.ensure_unicode(value)
 
     def getProperty(self, key):
         """Returns a listitem property as a string, similar to an infolabel.

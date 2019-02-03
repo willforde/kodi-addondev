@@ -72,6 +72,8 @@ def addDirectoryItem(handle, url, listitem, isFolder=False, totalItems=0):
         if not xbmcplugin.addDirectoryItem(int(sys.argv[1]), 'F:\\Trailers\\300.mov', listitem, totalItems=50):
             break
     """
+    listitem.setdefault("path", url)
+    listitem.setdefault("properties", {}).setdefault("folder", str(isFolder).lower())
     data = (xbmc.ensure_unicode(url), listitem, isFolder)
     xbmc.session.data.listitems.append(data)
     return True
@@ -103,7 +105,8 @@ def addDirectoryItems(handle, items, totalItems=0):
         if not xbmcplugin.addDirectoryItems(int(sys.argv[1]), [(url, listitem, False,)]:
             raise
     """
-    xbmc.session.data.listitems.extend(items)
+    for item in items:
+        addDirectoryItem(handle, *item, totalItems=totalItems)
     return True
 
 
