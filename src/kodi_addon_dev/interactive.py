@@ -345,7 +345,7 @@ class Display(object):
             process_items = self.process_listitem(item.copy())
 
             # Calculate the max length of property name
-            size_of_name = max(16, *map(len, process_items))  # Ensures a minimum spaceing of 16
+            size_of_name = max(16, *map(len, process_items)) + 1  # Ensures a minimum spaceing of 16
 
             label = "{}. {}".format(count, process_items.pop("label"))
 
