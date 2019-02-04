@@ -1,5 +1,5 @@
 # Standard Library Imports
-from typing import Union, List, Dict, Any, Tuple, Iterator
+from typing import Union, List, Dict, Tuple, Iterator
 import multiprocessing as mp
 from copy import deepcopy
 import binascii
@@ -16,6 +16,7 @@ from kodi_addon_dev.repo import LocalRepo
 from kodi_addon_dev.support import Addon, logger
 from kodi_addon_dev.utils import ensure_native_str
 from kodi_addon_dev.tesseract import Tesseract, KodiData
+import xbmcgui
 import xbmc
 
 try:
@@ -242,7 +243,7 @@ class Interact(object):
         else:
             return self.parent_stack.pop() if self.parent_stack else False
 
-    def process_resp(self, resp):  # type: (KodiData) -> List[Dict[str, Any]]
+    def process_resp(self, resp):  # type: (KodiData) -> List[xbmcgui.ListItem]
         """Process the resp object and trun into a list of listitems."""
 
         # Create initial item list with the previous list as the first item
@@ -271,26 +272,34 @@ class Display(object):
         """Ensures a line minimum of 80."""
         return max(get_terminal_size((300, 25)).columns, 80)
 
-    def show(self, items, current_path):  # type: (List[Dict[str, Any]], str) -> int
+    def show(self, items, current_path):  # type: (List[xbmcgui.ListItem], str) -> int
         line_width = self.line_width
 
         # Create output list with headers
-        output = ["=" * line_width, current_path, "-" * line_width]
+        output = ["=" * line_width, current_path, "-" * self.line_width]
 
         # Display the list of listitems for user to select
-        if self.detailed:
-            self.detailed_view(items)
-        else:
-            lines = self.compact_view(items)
-            output.extend(lines)
+        lines = self.detailed_view(items) if self.detailed else self.compact_view(items)
+        output.extend(lines)
 
-        output.append("-" * self.line_width)
+        output.append("=" * self.line_width)
         print("\n".join(output))
+
+        # def line_limiter(text):
+        #     if isinstance(text, (bytes, type(u""))):
+        #         text = text.replace("\n", "").replace("\r", "")
+        #     else:
+        #         text = str(text)
+        #
+        #     if self.crop and len(text) > (terminal_width - size_of_name):
+        #         return "%s..." % (text[:terminal_width - (size_of_name + 3)])
+        #     else:
+        #         return text
 
         # Return the full list of listitems
         return self.user_choice(len(items))
 
-    def compact_view(self, items):  # type: (List[Dict[str, Any]]) -> Iterator[str]
+    def compact_view(self, items):  # type: (List[xbmcgui.ListItem]) -> Iterator[str]
         """Displays a list of items along with the index to enable a user to select an item."""
 
         # Calculate the max length of required lines
@@ -317,91 +326,80 @@ class Display(object):
             # Construct the output line
             yield "{}. {} {} Listitem({})".format(str(count).rjust(num_len), item_type, label.ljust(title_len), item)
 
-    def detailed_view(self, listitems):
-        """
-        Displays a list of items along with the index to enable a user to select an item.
-
-        :param list listitems: List of dictionarys containing all of the listitem data.
-        :returns: The selected item
-        :rtype: dict
-        """
-        terminal_width = self.terminal_width
-
-        def line_limiter(text):
-            if isinstance(text, (bytes, type(u""))):
-                text = text.replace("\n", "").replace("\r", "")
-            else:
-                text = str(text)
-
-            if self.crop and len(text) > (terminal_width - size_of_name):
-                return "%s..." % (text[:terminal_width - (size_of_name + 3)])
-            else:
-                return text
-
-        print("")
-        # Print out all listitem to console
+    def detailed_view(self, listitems):  # type: (List[xbmcgui.ListItem]) -> Iterator[str]
+        """Displays a list of items along with the index to enable a user to select an item."""
+        # Create a line output for each component of a listitem
         for count, item in enumerate(listitems):
-            # Process listitem into a list of property name and value
-            process_items = self.process_listitem(item.copy())
+            # Process listitem the list of listitems and calculate max title size
+            listitem, size_of_name = self.process_listitem(deepcopy(item))
 
-            # Calculate the max length of property name
-            size_of_name = max(16, *map(len, process_items)) + 1  # Ensures a minimum spaceing of 16
+            # Show the title in it's own area
+            yield "{}. {}".format(count, listitem.pop("label"))
+            yield "#" * self.line_width
 
-            label = "{}. {}".format(count, process_items.pop("label"))
-
-            if count == 0:
-                print("{}".format("#" * self.line_width))
-            else:
-                print("\n\n{}".format("#" * self.line_width))
-
-            print(line_limiter(label))
-            print("{}".format("#" * self.line_width))
-
-            for key, value in process_items.items():
+            # Show all the rest of the listitem
+            for key, value in listitem.items():
                 if isinstance(value, list):
-                    print("{}:".format(key.title()))
-                    for name, text in value:
-                        print("- {}{}".format(name.ljust(size_of_name), text))
+                    yield ("{}:".format(key.title())).ljust(size_of_name)
+                    for name, sub in value:
+                        yield "- {}{}".format(name.ljust(size_of_name), sub)
                 else:
-                    print(key.title().ljust(size_of_name), value)
+                    yield "{}{}".format(key.title().ljust(size_of_name), value)
 
-        print("-" * terminal_width)
+            yield ""
 
-    def process_listitem(self, item):  # type: (Any) -> Dict[str, List[Tuple[str, str]]]
+    def process_listitem(self, item):  # type: (xbmcgui.ListItem) -> Tuple[Dict[str, List[Tuple[str, str]]], int]
         label = re.sub(r"\[[^\]]+?\]", "", item.pop("label")).strip()
         buffer = {"label": self.localize(label)}
+        size_of_name = [16]
 
-        if "label2" in item:
-            buffer["label2"] = self.localize(item.pop("label2").strip())
-
+        # Process the path independently
         if "path" in item:
             path = item.pop("path")
             if path.startswith("plugin://"):
-                buffer["path"] = sub = []
+                buffer["url"] = sub = []
 
+                # Show the base url components
                 parts = urlparse.urlsplit(path)
-
                 sub.append(("addon_id", parts.netloc))
                 sub.append(("selector", parts.path if parts.path else "/"))
 
+                # Parse the list of query parameters
                 if parts.query:
                     # Decode query string before parsing
                     query = self.decode_path(parts.query)
                     query = urlparse.parse_qsl(query)
-                    sub.extend(query)
+
+                    size_of_name.append(len(query[0]))
+                    buffer["Params"] = query
             else:
+                # Just show the path itself
                 buffer["path"] = path
 
+        # Process the context menu items independently
         if "context" in item:
-            buffer["context"] = [(self.localize(name), self.decode_path(command)) for name, command in item.pop("context")]
+            context = [(self.localize(name), self.decode_path(command)) for name, command in item.pop("context")]
+            size_of_name.extend(map(len, (name for name, _ in context)))
+            buffer["context"] = context
 
+        # Show all leftover items
         for key, value in item.items():
+            key = self.localize(key)
+            size_of_name.append(len(key))
+
+            # Show the sub name and values
             if isinstance(value, dict):
-                buffer[key] = [(sub_key, sub_value) for sub_key, sub_value in value.items()]
+                buffer[key] = sub = []
+                for sname, svalue in value.items():
+                    sname = self.localize(sname)
+                    sub.append((sname, self.localize(svalue) if isinstance(svalue, (bytes, type(u""))) else svalue))
+                    size_of_name.append(len(sname))
             else:
+                # Just directly show the value
                 buffer["key"] = value
 
-        return buffer
+        # Return the buffer and max length of the title column
+        return buffer, max(size_of_name) + 1
 
     def user_choice(self, valid_range):  # type: (int) -> Union[int, None]
         """Ask user to select an item, returning selection as an integer."""
