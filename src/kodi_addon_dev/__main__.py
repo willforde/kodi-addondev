@@ -58,9 +58,6 @@ def main():
         # Enable debug logging
         logger.setLevel(logging.DEBUG)
 
-    # Reverse the list of preselection for faster access
-    cmdargs.preselect.reverse()
-
     # Wipe the mock kodi directory, If requested
     setup_paths(cmdargs.clean_slate)
 

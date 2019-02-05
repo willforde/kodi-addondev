@@ -175,12 +175,15 @@ class PManager(dict):
 class Interact(object):
     def __init__(self, cmdargs, cached):  # type: (argparse.Namespace, LocalRepo) -> None
         self.parent_stack = []  # type: List[KodiData]
-        self.preselect = cmdargs.preselect
         self.cached = cached
         self.args = cmdargs
 
         self.display = Display(cmdargs.detailed, cmdargs.no_crop, cached)
         self.pm = PManager(cached)
+
+        # Reverse the list of preselection for faster access
+        self.preselect = list(map(int, cmdargs.preselect))
+        self.preselect.reverse()
 
     def start(self, request):  # type: (urlparse.SplitResult) -> None
         try:
