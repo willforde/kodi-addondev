@@ -36,6 +36,7 @@ log_levels = (logging.DEBUG,  # xbmc.LOGDEBUG
 
 class KodiData(object):
     def __init__(self):
+        self.calling_item = None
         self.path = None  # type: str
         self._data = {}
 

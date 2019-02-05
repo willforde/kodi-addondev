@@ -440,6 +440,7 @@ class ListItem(dict):
         :type iconImage: str or unicode
         """
         warnings.warn("method 'Listitem.setIconImage' is deprecated, use setArt.", DeprecationWarning)
+        self.setdefault("art", {})["icon"] = iconImage
 
     def setThumbnailImage(self, thumbFilename):
         """
@@ -449,6 +450,7 @@ class ListItem(dict):
         :type thumbFilename: str or unicode
         """
         warnings.warn("method 'Listitem.setThumbnailImage' is deprecated, use setArt.", DeprecationWarning)
+        self.setdefault("art", {})["thumb"] = thumbFilename
 
     def setContentLookup(self, enable):
         """
@@ -623,6 +625,7 @@ class ListItem(dict):
 
         Some default art values (any string possible):
 
+        * icon : string - image path
         * thumb : string - image filename
         * poster : string - image filename
         * banner : string - image filename
@@ -639,6 +642,32 @@ class ListItem(dict):
             self.list.getSelectedItem().setArt({ 'poster': 'poster.png', 'banner' : 'banner.png' })
         """
         self.setdefault("art", {}).update(dictionary)
+
+    def getArt(self, key):
+        """
+        Returns a listitem art path as a string, similar to an infolabel.
+
+        :param str key: art name.
+        :rtype: str
+
+        Some default art values (any string possible):
+
+        * icon : string - image path
+        * thumb : string - image filename
+        * poster : string - image filename
+        * banner : string - image filename
+        * fanart : string - image filename
+        * clearart : string - image filename
+        * clearlogo : string - image filename
+        * landscape : string - image filename
+
+        example::
+
+            poster = listitem.getArt('poster')
+        """
+        # TODO: Check if a missing key will raise an error or return an empty string on Kodi
+        value = self.setdefault("art", {}).get(key, "")
+        return xbmc.ensure_native_str(value)
 
     def setMimeType(self, mimetype):
         """
