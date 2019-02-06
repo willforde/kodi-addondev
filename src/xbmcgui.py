@@ -366,8 +366,23 @@ class ListItem(dict):
 
         if iconImage:
             warnings.warn("'ListItem(iconImage=image)' is deprecated, use setArt.", DeprecationWarning)
+            self.setdefault("art", {})["icon"] = iconImage
         if thumbnailImage:
             warnings.warn("'ListItem(thumbnailImage=image)' is deprecated, use setArt.", DeprecationWarning)
+            self.setdefault("art", {})["thumb"] = thumbnailImage
+
+    def addSeason(self, number, name=""):
+        """
+        Add a season with name to a listitem. It needs at least the season number.
+
+        :param int number: int - The number of the season.
+        :param str name: string - The name of the season. Default "".
+
+        example::
+
+            listitem.addSeason(1, "Murder House")
+        """
+        self.setdefault("info", {})["season"] = number
 
     def addStreamInfo(self, cType, dictionary):
         """
@@ -542,7 +557,7 @@ class ListItem(dict):
 
             self.list.getSelectedItem().setInfo('video', { 'Genre': 'Comedy' })
         """
-        self["info"] = infoLabels
+        self.setdefault("info", {}).update(infoLabels)
 
     def setProperty(self, key, value):
         """
@@ -576,13 +591,12 @@ class ListItem(dict):
         """
         return xbmc.ensure_native_str(self.setdefault("properties", {})[key])
 
-    def addContextMenuItems(self, items, replaceItems=False):
+    def addContextMenuItems(self, items, *_, **__):
         """Adds item(s) to the context menu for media lists.
 
         :param list items: list - [(label, action)] A list of tuples consisting of label and action pairs.
             label: string or unicode - item's label.
             action: string or unicode - any built-in function to perform.
-        :param bool replaceItems: bool - True=only your items will show/False=your items will be added to context menu.
 
         List of functions: http://wiki.xbmc.org/?title=List_of_Built_In_Functions
 
@@ -693,7 +707,7 @@ class ListItem(dict):
         """
         returns the MusicInfoTag for this item.
         """
-        return None
+        return ""
 
     def getVideoInfoTag(self):
         """
@@ -718,6 +732,7 @@ class ListItem(dict):
         Returns the description of this PlayListItem.
         :rtype: str
         """
+        warnings.warn("method 'Listitem.getdescription' is deprecated.", DeprecationWarning)
         return str()
 
     def getduration(self):
@@ -725,6 +740,7 @@ class ListItem(dict):
         Returns the duration of this PlayListItem
         :rtype: str
         """
+        warnings.warn("method 'Listitem.getduration' is deprecated, Use InfoTagMusic.", DeprecationWarning)
         return str()
 
     def getfilename(self):
@@ -732,6 +748,7 @@ class ListItem(dict):
         Returns the filename of this PlayListItem.
         :rtype: str
         """
+        warnings.warn("method 'Listitem.getfilename' is deprecated.", DeprecationWarning)
         return str()
 
     def select(self, selected):
