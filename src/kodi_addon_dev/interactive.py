@@ -1,6 +1,7 @@
+from __future__ import print_function
+
 # Standard Library Imports
-from typing import Union, List, Tuple, Iterator, Any
-from collections import namedtuple
+from typing import Union, List, Tuple, Iterator, Any, NamedTuple
 import multiprocessing as mp
 from copy import deepcopy
 import binascii
@@ -39,8 +40,8 @@ try:
 except NameError:
     _input = input
 
-Listitem = namedtuple("Listitem", ("count", "isfolder", "size_of_name", "item"))
-# List[Tuple[str, bool, int, Dict[str, List[Tuple[str, str]]]]]
+# The Processed Listitem Named tuple, Make listitems easier to work with
+Listitem = NamedTuple("Listitem", (("count", str), ("isfolder", bool), ("size_of_name", int), ("item", dict)))
 
 
 def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
@@ -275,18 +276,19 @@ class Interact(object):
         return items
 
 
-class BaseDisplay(abc.ABC):
+class BaseDisplay(object):
     """Base Class to for Displaying Kodi Listitems."""
+    __metaclass__ = abc.ABCMeta
 
     def __init__(self, cached):  # type: (LocalRepo) -> None
         self.cached = cached
 
     @abc.abstractmethod
-    def notify(self, *msg, skip=True):  # type: (str, bool) -> bool
+    def notify(self, *msg, **kwargs):
         pass
 
     @abc.abstractmethod
-    def show(self, items, current_path):  # type: (List[Listitem], str) -> int
+    def show(self, items, current_path):
         pass
 
     def show_raw(self, items, current_path):  # type: (List[xbmcgui.ListItem], str) -> None
@@ -402,13 +404,14 @@ class CMDisplay(BaseDisplay):
         self.settings = settings
 
     @staticmethod
-    def notify(*msg, skip=True):  # type: (str, bool) -> bool
+    def notify(*msg, **kwargs):
         """
         Notify the user with givin message.
 
         If skip is set to True then the user will be asked if they want to continue, returning True if so.
         Else False will be returned.
         """
+        skip = kwargs.get("skip", True)
         print(*msg)
         if skip:
             try:
@@ -442,7 +445,7 @@ class CMDisplay(BaseDisplay):
         """Display listitems in a compact view, one line per listitem."""
 
         # Calculate the max length of required lines
-        title_len = max(item[2] for item in items)
+        title_len = max(item.size_of_name for item in items)
         num_len = len(str(len(items)))
         title_len += num_len + 4
 
