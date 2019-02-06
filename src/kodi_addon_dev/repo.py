@@ -87,22 +87,19 @@ class Repo(object):
             json.dump(timestamp, stream)
 
     def download(self, dep):  # type: (Union[str, Dependency, Addon]) -> Addon
-        if isinstance(dep, str):
-            try:
-                dep = self.db[dep]
-            except KeyError:
-                raise KeyError("{} not found on remote repo".format(dep))
+        if isinstance(dep, str) and dep in self.db:
+            repo, addon = self.db[dep]
 
-        if dep.id not in self:
-            raise KeyError("{} not found on remote repo".format(dep))
-        else:
+        elif isinstance(dep, (Dependency, Addon)) and dep.id in self.db:
             repo, addon = self.db[dep.id]
 
-        # Warn user if we are downloading an older
-        # version than what is required
-        if addon.version < dep.version:
-            warnings.warn("required version is greater than whats available: {} < {}"
-                          .format(addon.version, dep.version), RuntimeWarning)
+            # Warn user if we are downloading an older
+            # version than what is required
+            if addon.version < dep.version:
+                warnings.warn("required version is greater than whats available: {} < {}"
+                              .format(addon.version, dep.version), RuntimeWarning)
+        else:
+            raise KeyError("{} not found on remote repo".format(dep))
 
         filename = u"{}-{}.zip".format(addon.id, addon.version)
         filepath = os.path.join(PACKAGE_DIR, filename)

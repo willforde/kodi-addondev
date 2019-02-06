@@ -1,5 +1,6 @@
 # Standard Library Imports
-from typing import Union, List, Dict, Tuple, Iterator, Any
+from typing import Union, List, Tuple, Iterator, Any
+from collections import namedtuple
 import multiprocessing as mp
 from copy import deepcopy
 import binascii
@@ -7,6 +8,7 @@ import argparse
 import pickle
 import runpy
 import json
+import abc
 import sys
 import re
 import os
@@ -36,6 +38,9 @@ try:
     _input = raw_input
 except NameError:
     _input = input
+
+Listitem = namedtuple("Listitem", ("count", "isfolder", "size_of_name", "item"))
+# List[Tuple[str, bool, int, Dict[str, List[Tuple[str, str]]]]]
 
 
 def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
@@ -79,8 +84,10 @@ def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
             # break from loop to end the process
             if reuse is False:
                 break
+    except KeyboardInterrupt:
+        pipe.send((False, False))
 
-    except BaseException as e:
+    except Exception as e:
         logger.debug(e, exc_info=True)
         pipe.send((False, False))
 
@@ -173,12 +180,15 @@ class PManager(dict):
 
 
 class Interact(object):
-    def __init__(self, cmdargs, cached):  # type: (argparse.Namespace, LocalRepo) -> None
+    def __init__(self, cmdargs, cached, display=None):  # type: (argparse.Namespace, LocalRepo, BaseDisplay) -> None
         self.parent_stack = []  # type: List[KodiData]
         self.cached = cached
         self.args = cmdargs
 
-        self.display = Display(cmdargs.detailed, cmdargs.no_crop, cached)
+        # Use custom display object if one is given, else use built-in command-line display
+        self.display = display() if display else CMDisplay(cached, cmdargs)
+
+        # The process manager
         self.pm = PManager(cached)
 
         # Reverse the list of preselection for faster access
@@ -204,7 +214,7 @@ class Interact(object):
 
                 # Process the response and convert into a list of items
                 items = self.process_resp(resp)
-                selector = self.preselect.pop() if self.preselect else self.display.show(items, resp.path)
+                selector = self.preselect.pop() if self.preselect else self.display.show_raw(items, resp.path)
 
                 # Fetch the selected listitem and start the loop again
                 if selector == 0 and self.parent_stack:
@@ -224,9 +234,9 @@ class Interact(object):
         except KeyboardInterrupt:
             pass
 
-        # except Exception as e:
-        #     logger.debug(e, exc_info=True)
-        #     print("Sorry :(, Something went really wrong.")
+        except Exception as e:
+            logger.debug(e, exc_info=True)
+            self.display.notify("Sorry :(, Something went really wrong.", skip=False)
 
         # Stop all stored saved processes
         self.pm.close()
@@ -236,32 +246,23 @@ class Interact(object):
         Report to user that addon has failed to execute.
         Returning previous list if one exists.
         """
-        print("Failed to execute addon. Please check log.")
-
-        # Parse script and wait for user input
-        # then revert back to previous list if one exists
-        try:
-            _input("Press enter to continue:")
-        except KeyboardInterrupt:
-            return False
-        else:
-            return self.parent_stack.pop() if self.parent_stack else False
+        ret = self.display.notify("Failed to execute addon. Please check log.")
+        return self.parent_stack.pop() if self.parent_stack else False if ret else False
 
     def process_resp(self, resp):  # type: (KodiData) -> List[xbmcgui.ListItem]
         """Process the resp object and trun into a list of listitems."""
 
-        items = []
+        # Fist item must be the parent caller if this resp is a child response
+        items = [{"label": "..", "path": self.parent_stack[-1].path}] if self.parent_stack else []
+
         # Populate list of items
         if resp.listitems:
-            if self.parent_stack:
-                item = {"label": "..", "path": self.parent_stack[-1].path}
-                items.append(item)
             items.extend(item[1] for item in resp.listitems)
         elif resp.resolved:
             # Add resolved video
             if self.parent_stack:
                 base = self.parent_stack[-1].calling_item
-                base.pop("context")
+                base.pop("context", "")
                 base.update(resp.resolved)
                 items.append(base)
             else:
@@ -274,35 +275,21 @@ class Interact(object):
         return items
 
 
-class Display(object):
-    def __init__(self, detailed, no_crop, cached):  # type: (bool, bool, LocalRepo) -> None
-        self.detailed = detailed
-        self.crop = not no_crop
+class BaseDisplay(abc.ABC):
+    """Base Class to for Displaying Kodi Listitems."""
+
+    def __init__(self, cached):  # type: (LocalRepo) -> None
         self.cached = cached
-        self.line_width = 80
 
-    @property
-    def terminal_width(self):
-        """Ensures a line minimum of 80."""
-        return max(get_terminal_size((300, 25)).columns, 80)
+    @abc.abstractmethod
+    def notify(self, *msg, skip=True):  # type: (str, bool) -> bool
+        pass
 
-    def show(self, items, current_path):  # type: (List[xbmcgui.ListItem], str) -> int
-        # Process all listitems into a Tuple of [count, isfolder, len label, listitem]
-        items = self.process_listitems(items)
-        lines = self.detailed_view(items) if self.detailed else self.compact_view(items)
-        lines = map(self.line_limiter, lines) if self.crop else lines
+    @abc.abstractmethod
+    def show(self, items, current_path):  # type: (List[Listitem], str) -> int
+        pass
 
-        # Construct the full list of line to display
-        output = ["=" * self.line_width, current_path, "-" * self.line_width]
-        output.extend(lines)
-        output.append("=" * self.line_width)
-        print("\n".join(output))
-
-        # Return the full list of listitems
-        return self.user_choice(len(items))
-
-    def process_listitems(self, items):
-        # type: (List[xbmcgui.ListItem]) -> List[Tuple[int, bool, int, Dict[str, List[Tuple[str, str]]]]]
+    def show_raw(self, items, current_path):  # type: (List[xbmcgui.ListItem], str) -> None
         size_of_name = [16]
         pro_items = []
 
@@ -310,7 +297,7 @@ class Display(object):
         for count, item in enumerate(map(deepcopy, items)):
             isfolder = item.get("properties", {}).get("folder", "true") == "true"
             label = re.sub(r"\[[^\]]+?\]", "", item.pop("label", "UNKNOWN")).strip()
-            label = self.localize(label)
+            label = self._localize(label)
             size_of_name.append(len(label))
             buffer = {"label": label}
 
@@ -328,7 +315,7 @@ class Display(object):
                     # Parse the list of query parameters
                     if parts.query:
                         # Decode query string before parsing
-                        query = self.decode_path(parts.query)
+                        query = self._decode_path(parts.query)
                         query = urlparse.parse_qsl(query)
 
                         size_of_name.append(len(query[0]))
@@ -336,135 +323,52 @@ class Display(object):
                 else:
                     # Just show the path itself
                     buffer["path"] = path
+                    count = "X"
 
             # Process the context menu items independently
             if "context" in item:
-                context = {self.localize(name): self.decode_path(command) for name, command in item.pop("context")}
+                context = {self._localize(name): self._decode_path(command) for name, command in item.pop("context")}
                 size_of_name.extend(map(len, (name for name in context)))
                 buffer["context"] = context
 
             # Show all leftover items
             for key, value in item.items():
-                key = self.localize(key)
+                key = self._localize(key)
                 size_of_name.append(len(key))
 
                 # Show the sub name and values
                 if isinstance(value, dict):
                     buffer[key] = sub = {}
                     for sname, svalue in value.items():
-                        sname = self.localize(sname)
-                        sub[sname] = self.localize(svalue) if isinstance(svalue, (bytes, type(u""))) else svalue
+                        sname = self._localize(sname)
+                        sub[sname] = self._localize(svalue) if isinstance(svalue, (bytes, type(u""))) else svalue
                         size_of_name.append(len(sname))
                 else:
                     # Just directly show the value
                     buffer["key"] = value
 
             # Return the buffer and max length of the title column
-            pro_items.append((count, isfolder, max(size_of_name) + 1, buffer))
+            listitem = Listitem(str(count), isfolder, max(size_of_name) + 1, buffer)
+            pro_items.append(listitem)
 
         # Return the full list of processed listitems
-        return pro_items
+        self.show(pro_items, current_path)
 
-    def process_listitems_old(self, items):
-        # type: (List[xbmcgui.ListItem]) -> List[Tuple[int, bool, int, Dict[str, List[Tuple[str, str]]]]]
-        size_of_name = [16]
-        pro_items = []
+    def _localize(self, text):
+        def decode(match):
+            # Localize the localization string
+            strings = self.cached.request_addon("resource.language.en_gb").strings
+            string_id = int(match.group(1))
 
-        # Make a deepcopy of all item so not to messup the parent list
-        for count, item in enumerate(map(deepcopy, items)):
-            isfolder = item.get("properties", {}).get("folder", "true") == "true"
-            label = re.sub(r"\[[^\]]+?\]", "", item.pop("label", "UNKNOWN")).strip()
-            label = self.localize(label)
-            size_of_name.append(len(label))
-            buffer = {"label": label}
+            # Return the localized string if available else leave string untouched
+            return strings[string_id] if string_id in strings else match.group(0)
 
-            # Process the path independently
-            if "path" in item:
-                path = item.pop("path")
-                if path.startswith("plugin://"):
-                    buffer["url"] = sub = []
-
-                    # Show the base url components
-                    parts = urlparse.urlsplit(path)
-                    sub.append(("addon_id", parts.netloc))
-                    sub.append(("path", parts.path if parts.path else "/"))
-
-                    # Parse the list of query parameters
-                    if parts.query:
-                        # Decode query string before parsing
-                        query = self.decode_path(parts.query)
-                        query = urlparse.parse_qsl(query)
-
-                        size_of_name.append(len(query[0]))
-                        buffer["Params"] = query
-                else:
-                    # Just show the path itself
-                    buffer["path"] = path
-
-            # Process the context menu items independently
-            if "context" in item:
-                context = [(self.localize(name), self.decode_path(command)) for name, command in item.pop("context")]
-                size_of_name.extend(map(len, (name for name, _ in context)))
-                buffer["context"] = context
-
-            # Show all leftover items
-            for key, value in item.items():
-                key = self.localize(key)
-                size_of_name.append(len(key))
-
-                # Show the sub name and values
-                if isinstance(value, dict):
-                    buffer[key] = sub = []
-                    for sname, svalue in value.items():
-                        sname = self.localize(sname)
-                        sub.append((sname, self.localize(svalue) if isinstance(svalue, (bytes, type(u""))) else svalue))
-                        size_of_name.append(len(sname))
-                else:
-                    # Just directly show the value
-                    buffer["key"] = value
-
-            # Return the buffer and max length of the title column
-            pro_items.append((count, isfolder, max(size_of_name) + 1, buffer))
-
-        # Return the full list of processed listitems
-        return pro_items
+        # Search & replace matching LOCALIZE strings
+        text = ensure_native_str(text)
+        return re.sub(r"\$LOCALIZE\[(\d+)\]", decode, text)
 
     @staticmethod
-    def compact_view(items):  # type: (Any) -> Iterator[str]
-        """Display listitems in a compact view, one line per listitem."""
-
-        # Calculate the max length of required lines
-        title_len = max(item[2] for item in items)
-        num_len = len(str(len(items)))
-        title_len += num_len + 4
-
-        # Create a line output for each listitem entry
-        for count, isfolder, _, item in items:
-            # Folder/Video icon, + for Folder, - for Video
-            label = ("{}. + {}" if isfolder else "{}. - {}").format(str(count).rjust(num_len), item.pop("label"))
-            yield "{} Listitem({})".format(label.ljust(title_len), item)
-
-    def detailed_view(self, items):  # type: (Any) -> Iterator[str]
-        """Display listitems in a detailed view, each component of a listitem will be on it's own line."""
-        # Create a line output for each component of a listitem
-        for count, _, size_of_name, item in items:
-            # Show the title in it's own area
-            yield "{}. {}".format(count, item.pop("label"))
-            yield "#" * self.line_width
-
-            # Show all the rest of the listitem
-            for key, value in item.items():
-                if isinstance(value, dict):
-                    yield ("{}:".format(key.title())).ljust(size_of_name)
-                    for name, sub in value.items():
-                        yield "- {}{}".format(name.ljust(size_of_name), sub)
-                else:
-                    yield "{}{}".format(key.title().ljust(size_of_name), value)
-
-            yield ""
-
-    @staticmethod
-    def decode_path(path):  # type: (str) -> str
+    def _decode_path(path):  # type: (str) -> str
         def decode(match):
             key = match.group(1)  # First part of params
             value = match.group(2)  # Second part of params
@@ -489,26 +393,88 @@ class Display(object):
         path = ensure_native_str(path)
         return re.sub(r"(_pickle_|_json_)=([0-9a-f]+)", decode, path, flags=re.IGNORECASE)
 
-    def localize(self, text):
-        def decode(match):
-            # Localize the localization string
-            strings = self.cached.request_addon("resource.language.en_gb").strings
-            string_id = int(match.group(1))
 
-            # Return the localized string if available else leave string untouched
-            return strings[string_id] if string_id in strings else match.group(0)
-
-        # Search & replace matching LOCALIZE strings
-        text = ensure_native_str(text)
-        return re.sub(r"\$LOCALIZE\[(\d+)\]", decode, text)
-
-    def line_limiter(self, line):  # type: (str) -> str
-        """Limit the length of a output line to fit within the terminal window."""
-        terminal_width = self.terminal_width
-        return "%s..." % (line[:terminal_width-3]) if len(line) > terminal_width else line
+class CMDisplay(BaseDisplay):
+    """Display manager that will display kodi listitem in a terminal window."""
+    def __init__(self, cached, settings):  # type: (LocalRepo, argparse.Namespace) -> None
+        super(CMDisplay, self).__init__(cached)
+        self.default_terminal_size = 80
+        self.settings = settings
 
     @staticmethod
-    def user_choice(valid_range):  # type: (int) -> Union[int, None]
+    def notify(*msg, skip=True):  # type: (str, bool) -> bool
+        """
+        Notify the user with givin message.
+
+        If skip is set to True then the user will be asked if they want to continue, returning True if so.
+        Else False will be returned.
+        """
+        print(*msg)
+        if skip:
+            try:
+                _input("Press enter to continue, or Ctrl+C to Quit:")
+            except KeyboardInterrupt:
+                return False
+            else:
+                print()
+                return True
+        else:
+            return False
+
+    def show(self, items, current_path):  # type: (List[Listitem], str) -> int
+        """Show a list of all the avilable listitems and allow user to make there selection."""
+        # Process all listitems into a Tuple of [count, isfolder, len label, listitem]
+        lines = self._detailed_view(items) if self.settings.detailed else self._compact_view(items)
+        lines = lines if self.settings.no_crop else map(self._line_limiter, lines)
+        terminal_width = self._terminal_width
+
+        # Construct the full list of line to display
+        output = ["=" * terminal_width, current_path, "=" * terminal_width]
+        output.extend(lines)
+        output.append("=" * terminal_width)
+        print("\n".join(output))
+
+        # Return the full list of listitems
+        return self._user_choice(len(items))
+
+    @staticmethod
+    def _compact_view(items):  # type: (Any) -> Iterator[str]
+        """Display listitems in a compact view, one line per listitem."""
+
+        # Calculate the max length of required lines
+        title_len = max(item[2] for item in items)
+        num_len = len(str(len(items)))
+        title_len += num_len + 4
+
+        # Create a line output for each listitem entry
+        for count, isfolder, _, item in items:
+            # Folder/Video icon, + for Folder, - for Video
+            label = ("{}. + {}" if isfolder else "{}. - {}").format(count.rjust(num_len), item.pop("label"))
+            yield "{} Listitem({})".format(label.ljust(title_len), item)
+
+    def _detailed_view(self, items):  # type: (Any) -> Iterator[str]
+        """Display listitems in a detailed view, each component of a listitem will be on it's own line."""
+        terminal_width = self._terminal_width
+
+        # Create a line output for each component of a listitem
+        for count, _, size_of_name, item in items:
+            # Show the title in it's own area
+            yield "{}. {}".format(count, item.pop("label"))
+            yield "#" * terminal_width
+
+            # Show all the rest of the listitem
+            for key, value in item.items():
+                if isinstance(value, dict):
+                    yield ("{}:".format(key.title())).ljust(size_of_name)
+                    for name, sub in value.items():
+                        yield "- {}{}".format(name.ljust(size_of_name), sub)
+                else:
+                    yield "{}{}".format(key.title().ljust(size_of_name), value)
+
+            yield ""
+
+    @staticmethod
+    def _user_choice(valid_range):  # type: (int) -> Union[int, None]
         """Ask user to select an item, returning selection as an integer."""
         while True:
             try:
@@ -532,3 +498,13 @@ class Display(object):
                         print("Choise is out of range, Please choose from above list.")
             else:
                 return None
+
+    @property
+    def _terminal_width(self):
+        """Ensures a line minimum of 80."""
+        return max(get_terminal_size((300, 25)).columns, 80)
+
+    def _line_limiter(self, line):  # type: (str) -> str
+        """Limit the length of a output line to fit within the terminal window."""
+        terminal_width = self._terminal_width
+        return "%s..." % (line[:terminal_width-3]) if len(line) > terminal_width else line
