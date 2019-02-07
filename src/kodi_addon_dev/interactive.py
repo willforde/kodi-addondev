@@ -187,7 +187,7 @@ class Interact(object):
         self.args = cmdargs
 
         # Use custom display object if one is given, else use built-in command-line display
-        self.display = display() if display else CMDisplay(cached, cmdargs)
+        self.display = display if display else CMDisplay(cached, cmdargs)
 
         # The process manager
         self.pm = PManager(cached)
@@ -299,7 +299,7 @@ class BaseDisplay(object):
         for count, item in enumerate(map(deepcopy, items)):
             isfolder = item.get("properties", {}).get("folder", "true") == "true"
             label = re.sub(r"\[[^\]]+?\]", "", item.pop("label", "UNKNOWN")).strip()
-            label = self._localize(label)
+            label = self.localize(label)
             size_of_name.append(len(label))
             buffer = {"label": label}
 
@@ -317,7 +317,7 @@ class BaseDisplay(object):
                     # Parse the list of query parameters
                     if parts.query:
                         # Decode query string before parsing
-                        query = self._decode_path(parts.query)
+                        query = self.decode_path(parts.query)
                         query = urlparse.parse_qsl(query)
 
                         size_of_name.append(len(query[0]))
@@ -329,21 +329,21 @@ class BaseDisplay(object):
 
             # Process the context menu items independently
             if "context" in item:
-                context = {self._localize(name): self._decode_path(command) for name, command in item.pop("context")}
+                context = {self.localize(name): self.decode_path(command) for name, command in item.pop("context")}
                 size_of_name.extend(map(len, (name for name in context)))
                 buffer["context"] = context
 
             # Show all leftover items
             for key, value in item.items():
-                key = self._localize(key)
+                key = self.localize(key)
                 size_of_name.append(len(key))
 
                 # Show the sub name and values
                 if isinstance(value, dict):
                     buffer[key] = sub = {}
                     for sname, svalue in value.items():
-                        sname = self._localize(sname)
-                        sub[sname] = self._localize(svalue) if isinstance(svalue, (bytes, type(u""))) else svalue
+                        sname = self.localize(sname)
+                        sub[sname] = self.localize(svalue) if isinstance(svalue, (bytes, type(u""))) else svalue
                         size_of_name.append(len(sname))
                 else:
                     # Just directly show the value
@@ -356,7 +356,7 @@ class BaseDisplay(object):
         # Return the full list of processed listitems
         self.show(pro_items, current_path)
 
-    def _localize(self, text):
+    def localize(self, text):
         def decode(match):
             # Localize the localization string
             strings = self.cached.request_addon("resource.language.en_gb").strings
@@ -370,7 +370,7 @@ class BaseDisplay(object):
         return re.sub(r"\$LOCALIZE\[(\d+)\]", decode, text)
 
     @staticmethod
-    def _decode_path(path):  # type: (str) -> str
+    def decode_path(path):  # type: (str) -> str
         def decode(match):
             key = match.group(1)  # First part of params
             value = match.group(2)  # Second part of params
