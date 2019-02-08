@@ -7,7 +7,6 @@ import hashlib
 import tempfile
 import logging
 import shutil
-import sys
 import re
 import os
 
@@ -20,15 +19,6 @@ from kodi_addon_dev import utils
 IGNORE_LIST = ("xbmc.python", "xbmc.core", "kodi.resource")
 EXT_POINTS = ("xbmc.python.pluginsource", "xbmc.python.module")
 CACHE_DIR = appdirs.user_cache_dir("kodi-addondev")
-
-# Base logger
-logger = logging.getLogger("kodi-addondev")
-handler = logging.StreamHandler(stream=sys.stdout)
-handler.setFormatter(logging.Formatter("%(relativeCreated)-13s %(levelname)7s: %(message)s"))
-logger.addHandler(handler)
-logger.setLevel(logging.INFO)
-logger.propagate = False
-# TODO: Setup logger to log to a file
 
 # Kodi directory paths
 KODI_HOME = os.path.join(tempfile.gettempdir(), "kodi-addondev.WM_Esa")
@@ -50,6 +40,21 @@ KPATHS["screenshots"] = temp
 KPATHS["logpath"] = temp
 KPATHS["cdrips"] = temp
 KPATHS["skin"] = temp
+
+# Base logger
+base_logger = logging.getLogger("kodi")
+base_logger.setLevel(logging.DEBUG)
+base_logger.propagate = False
+
+# Add File Handler support to logger
+logfile = os.path.join(temp, "kodi.log")
+handler = logging.FileHandler(logfile, mode="w", encoding="utf8")
+handler.setFormatter(utils.CustomFormatter())
+handler.setLevel(logging.DEBUG)
+base_logger.addHandler(handler)
+
+# Internal Logger
+logger = logging.getLogger("kodi.dev")
 
 
 def setup_paths(clean):  # type: (bool) -> None
@@ -250,7 +255,7 @@ class Addon(object):
                     file_data = stream.read()
 
                 # Populate dict of strings
-                search_pattern = 'msgctxt\s+"#(\d+)"\s+msgid\s+"(.+?)"\s+msgstr\s+"(.*?)'
+                search_pattern = r'msgctxt\s+"#(\d+)"\s+msgid\s+"(.+?)"\s+msgstr\s+"(.*?)'
                 for strID, msgID, msStr in re.findall(search_pattern, file_data):
                     yield int(strID), msStr if msStr else msgID
 

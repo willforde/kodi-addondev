@@ -3,10 +3,10 @@ import argparse
 import logging
 
 # Package imports
-from kodi_addon_dev import repo
+from kodi_addon_dev import repo, utils
 from kodi_addon_dev.interactive import Interact
 from kodi_addon_dev.utils import RealPath, RealPathList, CommaList
-from kodi_addon_dev.support import logger, Addon, setup_paths
+from kodi_addon_dev.support import base_logger, Addon, setup_paths
 
 try:
     import urllib.parse as urlparse
@@ -25,10 +25,10 @@ run_group = parser.add_argument_group(
 run_group.add_argument("path", metavar="addon", action=RealPath,
                        help="The path to the addon that will be executed. Path can be full or relative.")
 
-run_group.add_argument("-d", "--debug", action="store_true",
-                       help="Show debug logging output")
+run_group.add_argument("-l", "--log", action="store_true",
+                       help="Show logging messages in stdout.")
 
-run_group.add_argument("-e", "--detailed", action="store_true",
+run_group.add_argument("-d", "--detailed", action="store_true",
                        help="Show listitems in a detailed view.")
 
 run_group.add_argument("-n", "--no-crop", action="store_true",
@@ -47,16 +47,16 @@ run_group.add_argument("-t", "--content-type", metavar="type",
 run_group.add_argument("-r", "--remote-repos", metavar="url", nargs="+", action=RealPathList, default=[],
                        help="List of custom repo urls, separated by a space.")
 
-run_group.add_argument("-l", "--local-repos", metavar="path", nargs="+", action=RealPathList, default=[],
+run_group.add_argument("-o", "--local-repos", metavar="path", nargs="+", action=RealPathList, default=[],
                        help="List of directorys where kodi addons are stored, separated by a space.")
 
 
 def main():
     # Parse the cli arguments
     cmdargs = parser.parse_args()
-    if cmdargs.debug:
-        # Enable debug logging
-        logger.setLevel(logging.DEBUG)
+    if cmdargs.log:
+        base_handler = utils.CusstomStreamHandler()
+        base_logger.addHandler(base_handler)
 
     # Wipe the mock kodi directory, If requested
     setup_paths(cmdargs.clean_slate)
@@ -73,6 +73,9 @@ def main():
     # Execute the addon in interactive mode
     inter = Interact(cmdargs, cached)
     inter.start(url_parts)
+
+    # Close all logging handlers
+    logging.shutdown()
 
 
 # This is only here for development

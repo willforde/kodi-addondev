@@ -72,6 +72,7 @@ class Repo(object):
 
     def update(self):
         """Check if any cached addon need updating."""
+        logger.debug("Checking for updates...")
         for addon in self.cached.values():
             if addon.id not in self:
                 # We have a cached addon that no longer exists in the repo
@@ -104,7 +105,7 @@ class Repo(object):
         filename = u"{}-{}.zip".format(addon.id, addon.version)
         filepath = os.path.join(PACKAGE_DIR, filename)
         if os.path.exists(filepath):
-            logger.info("Using cached package: '{}'".format(filename))
+            logger.debug("Using cached package: '{}'".format(filename))
         else:
             logger.info("Downloading: '{}'".format(filename))
             # Remove old zipfiles before download, if any
@@ -205,6 +206,7 @@ class LocalRepo(object):
                 path = os.path.join(addons_dir, filename, "addon.xml")
                 if os.path.exists(path):
                     addon = Addon.from_file(path)
+                    logger.debug("Found Addon: %s", os.path.join(addons_dir, filename))
                     yield addon.id, addon
 
     def _process_dependencies(self, dependencies):  # type: (List[Dependency]) -> Iterator[str]

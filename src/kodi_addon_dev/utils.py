@@ -1,5 +1,6 @@
 # Standard Library Imports
 import argparse
+import logging
 import sys
 import os
 
@@ -60,6 +61,43 @@ class CommaList(argparse.Action):
         values = unicode_cmdargs(values)
         items = [value.strip() for value in values.split(",")]
         setattr(namespace, self.dest, items)
+
+
+class CusstomStreamHandler(logging.StreamHandler):
+    """
+    A handler class which writes logging records, appropriately formatted, to a stream.
+    Debug & Info records will be logged to sys.stdout, and all other records will be logged to sys.stderr.
+    """
+
+    def __init__(self):
+        super(CusstomStreamHandler, self).__init__()
+        self.setLevel(logging.DEBUG)
+        self.stdout = sys.stdout
+        self.stderr = sys.stderr
+
+        # Set a custom formater that will format things differently based on logger name
+        self.setFormatter(CustomFormatter())
+
+    # noinspection PyBroadException
+    def emit(self, record):
+        """Emit a record."""
+        try:
+            msg = self.format(record)
+            stream = self.stdout if record.levelno < 30 else self.stderr
+            stream.write(msg + self.terminator)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
+class CustomFormatter(object):
+    def __init__(self):
+        self.default_fmt = logging.Formatter("%(relativeCreated)-19s %(levelname)5s: %(message)s")
+        self.fmts = {"kodi.dev": logging.Formatter("%(relativeCreated)-19s %(levelname)5s: [kodi-addon-dev] %(message)s")}
+
+    def format(self, record):
+        formater = self.fmts.get(record.name, self.default_fmt)
+        return formater.format(record)
 
 
 def ensure_native_str(data, encoding="utf8"):

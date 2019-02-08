@@ -21,7 +21,7 @@ except NameError:
 # Package imports
 from kodi_addon_dev import utils
 from kodi_addon_dev.repo import LocalRepo
-from kodi_addon_dev.support import Addon, logger, KPATHS
+from kodi_addon_dev.support import Addon, base_logger, KPATHS
 
 # Kodi log levels
 log_levels = (logging.DEBUG,  # xbmc.LOGDEBUG
@@ -141,7 +141,7 @@ class Tesseract(object):
     @staticmethod
     def log(lvl, msg):  # type: (int, str) -> None
         lvl = log_levels[lvl]
-        logger.log(lvl, msg)
+        base_logger.log(lvl, msg)
 
     @staticmethod
     def translate_path(path):  # type: (str) -> str

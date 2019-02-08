@@ -43,6 +43,8 @@ except NameError:
 # The Processed Listitem Named tuple, Make listitems easier to work with
 Listitem = NamedTuple("Listitem", (("count", str), ("isfolder", bool), ("size_of_name", int), ("item", dict)))
 
+# TODO: Check youtube addon to see why it's now working
+
 
 def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
     try:
@@ -89,14 +91,14 @@ def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
         pipe.send((False, False))
 
     except Exception as e:
-        logger.debug(e, exc_info=True)
+        logger.error(e, exc_info=True)
         pipe.send((False, False))
 
 
 class PRunner(object):
     def __init__(self, cached, addon):  # type: (LocalRepo, Addon) -> None
         self.deps = cached.load_dependencies(addon)
-        self.reuse = True  # addon.reuse_lang_invoker
+        self.reuse = addon.reuse_lang_invoker
         self.cached = cached
         self.addon = addon
 
@@ -107,11 +109,14 @@ class PRunner(object):
     @property
     def process(self):  # type: () -> mp.Process
         if self._process and self._process.is_alive():
+            logger.debug("Reuseing subprocess: %s", self._process.name)
             return self._process
         else:
             # Create the new process that will execute the addon
             process = mp.Process(target=subprocess, args=[self.sub_pipe, self.reuse])
             process.start()
+
+            logger.debug("Spawned new subprocess: %s", process.name)
 
             if self.reuse:
                 # Save the process for later use
@@ -119,6 +124,7 @@ class PRunner(object):
             return process
 
     def execute(self, url_parts):  # type: (urlparse.SplitResult) -> Union[KodiData, bool]
+        logger.info("Execution Addon: %s", url_parts.netloc)
         try:
             # Construct command and send to sub process for execution
             command = ("execute", (self.addon, self.deps, self.cached, url_parts))
@@ -151,7 +157,7 @@ class PRunner(object):
                     return False if status is False else data
 
         except Exception as e:
-            logger.debug(e, exc_info=True)
+            logger.error(e, exc_info=True)
 
         # SubProcess exited unexpectedly
         return False
@@ -159,7 +165,7 @@ class PRunner(object):
     def stop(self):
         """Stop the subproces."""
         if self._process and self._process.is_alive():
-            # Send stop command
+            logger.debug("Terminating process: %s", self._process.name)
             stop_command = ("stop", None)
             self.pipe.send(stop_command)
             self._process.join()
@@ -195,6 +201,9 @@ class Interact(object):
         # Reverse the list of preselection for faster access
         self.preselect = list(map(int, cmdargs.preselect))
         self.preselect.reverse()
+
+        # Log the arguments pass to program
+        logger.debug("Command-Line Arguments: %s", vars(cmdargs))
 
     def start(self, request):  # type: (urlparse.SplitResult) -> None
         try:
@@ -236,7 +245,7 @@ class Interact(object):
             pass
 
         except Exception as e:
-            logger.debug(e, exc_info=True)
+            logger.error(e, exc_info=True)
             self.display.notify("Sorry :(, Something went really wrong.", skip=False)
 
         # Stop all stored saved processes
@@ -354,7 +363,7 @@ class BaseDisplay(object):
             pro_items.append(listitem)
 
         # Return the full list of processed listitems
-        self.show(pro_items, current_path)
+        return self.show(pro_items, current_path)
 
     def localize(self, text):
         def decode(match):

@@ -679,7 +679,6 @@ class ListItem(dict):
 
             poster = listitem.getArt('poster')
         """
-        # TODO: Check if a missing key will raise an error or return an empty string on Kodi
         value = self.setdefault("art", {}).get(key, "")
         return xbmc.ensure_native_str(value)
 
