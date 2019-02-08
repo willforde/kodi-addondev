@@ -12,7 +12,6 @@ import json
 import abc
 import sys
 import re
-import os
 
 # Package imports
 from kodi_addon_dev.repo import LocalRepo
@@ -70,8 +69,8 @@ def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
                     tesseract.data.path = url.geturl()
 
                     # Execute the addon
-                    path = os.path.splitext(addon.library)[0]
-                    runpy.run_module(path, run_name="__main__", alter_sys=False)
+                    module = addon.entrypoint[1]
+                    runpy.run_module(module, run_name="__main__", alter_sys=False)
 
                 # Addon must have directly raised an error
                 except Exception as e:
@@ -211,12 +210,16 @@ class Interact(object):
                 if isinstance(request, urlparse.SplitResult):
                     # Request the addon & process manager related to the kodi plugin id
                     addon = self.cached.request_addon(request.netloc)
-                    runner = self.pm[addon]  # type: PRunner
+                    if addon.entrypoint is None:
+                        request = self.handle_failed("Sorry, Only Video/Music/Picture add-on's are supported")
+                        continue
+                    else:
+                        runner = self.pm[addon]  # type: PRunner
 
                     # Execute addon in subprocess
                     resp = runner.execute(request)
                     if resp is False:
-                        request = self.handle_failed()
+                        request = self.handle_failed("Failed to execute addon. Please check log.")
                         continue
                 else:
                     # This must be the parent object
@@ -251,12 +254,13 @@ class Interact(object):
         # Stop all stored saved processes
         self.pm.close()
 
-    def handle_failed(self):  # type: () -> Union[KodiData, bool]
+    def handle_failed(self, msg):  # type: (str) -> Union[KodiData, bool]
         """
         Report to user that addon has failed to execute.
         Returning previous list if one exists.
         """
-        ret = self.display.notify("Failed to execute addon. Please check log.")
+        ret = self.display.notify(msg)
+        logger.error(msg)
         return self.parent_stack.pop() if self.parent_stack else False if ret else False
 
     def process_resp(self, resp):  # type: (KodiData) -> List[xbmcgui.ListItem]

@@ -17,8 +17,8 @@ import appdirs
 from kodi_addon_dev import utils
 
 IGNORE_LIST = ("xbmc.python", "xbmc.core", "kodi.resource")
-EXT_POINTS = ("xbmc.python.pluginsource", "xbmc.python.module")
 CACHE_DIR = appdirs.user_cache_dir("kodi-addondev")
+PLUGIN_TYPES = ("xbmc.addon.video", "xbmc.addon.audio", "xbmc.addon.image", "xbmc.python.pluginsource")
 
 # Kodi directory paths
 KODI_HOME = os.path.join(tempfile.gettempdir(), "kodi-addondev.WM_Esa")
@@ -48,7 +48,7 @@ base_logger.propagate = False
 
 # Add File Handler support to logger
 logfile = os.path.join(temp, "kodi.log")
-handler = logging.FileHandler(logfile, mode="w", encoding="utf8")
+handler = logging.FileHandler(logfile, mode="w", encoding="utf8", delay=True)
 handler.setFormatter(utils.CustomFormatter())
 handler.setLevel(logging.DEBUG)
 base_logger.addHandler(handler)
@@ -109,17 +109,9 @@ class Addon(object):
         self.path = path
         self.stars = -1
 
-        # Parse entry point
-        self.type = self._point_type()
-
-    def _point_type(self):
-        """Return the extention point type of the addon."""
-        for ext in self._xml.findall("extension"):
-            point = ext.get("point")
-            if point in EXT_POINTS:
-                return point
-        else:
-            return ""
+        # Parse all extension points
+        self.extensions = {ext.get("point"): ext.attrib for ext in xml_node.findall("extension")}
+        self.entrypoint = self._entrypoint()
 
     @property
     def id(self):  # type: () -> str
@@ -219,6 +211,18 @@ class Addon(object):
                 dependencies.append(dep)
         return dependencies
 
+    def _entrypoint(self):  # type: () -> Tuple[str, str]
+        """Return the lib path and entrypoint to the addon if the addon is directly executable."""
+        for ext in PLUGIN_TYPES:
+            if ext in self.extensions:
+                library = self.extensions[ext]["library"]
+                lib_path, entry = os.path.split(library)
+                entry = os.path.splitext(entry)[0]
+
+                # Return the full path to lib & entry point
+                lib_path = os.path.join(self.path, os.path.normpath(lib_path)) if lib_path else self.path
+                return lib_path, entry
+
     def preload(self):  # type: () -> Addon
         """
         Preload the setting & strings into memory.
@@ -258,15 +262,6 @@ class Addon(object):
                 search_pattern = r'msgctxt\s+"#(\d+)"\s+msgid\s+"(.+?)"\s+msgstr\s+"(.*?)'
                 for strID, msgID, msStr in re.findall(search_pattern, file_data):
                     yield int(strID), msStr if msStr else msgID
-
-    @property
-    def library(self):  # type: () -> str
-        """Return The library value for the given addon point."""
-        node = self._xml.find("extension[@point='{}']".format(self.type))
-        if node is not None:
-            return node.attrib["library"]
-        else:
-            raise RuntimeError("library parmeter is missing from extension point")
 
     def set_setting(self, key, value):
         if not isinstance(value, (bytes, utils.unicode_type)):

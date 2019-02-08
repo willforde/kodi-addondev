@@ -56,6 +56,8 @@ def main():
     cmdargs = parser.parse_args()
     if cmdargs.log:
         base_handler = utils.CusstomStreamHandler()
+        base_handler.setFormatter(utils.CustomFormatter())
+        base_handler.setLevel(logging.DEBUG)
         base_logger.addHandler(base_handler)
 
     # Wipe the mock kodi directory, If requested

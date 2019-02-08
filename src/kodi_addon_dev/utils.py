@@ -70,24 +70,20 @@ class CusstomStreamHandler(logging.StreamHandler):
     """
 
     def __init__(self):
-        super(CusstomStreamHandler, self).__init__()
-        self.setLevel(logging.DEBUG)
-        self.stdout = sys.stdout
-        self.stderr = sys.stderr
-
-        # Set a custom formater that will format things differently based on logger name
-        self.setFormatter(CustomFormatter())
+        super(CusstomStreamHandler, self).__init__(sys.stdout)
 
     # noinspection PyBroadException
     def emit(self, record):
-        """Emit a record."""
-        try:
-            msg = self.format(record)
-            stream = self.stdout if record.levelno < 30 else self.stderr
-            stream.write(msg + self.terminator)
-            self.flush()
-        except Exception:
-            self.handleError(record)
+        """Swap out the stdout stream with stderr if log level is WARNING or greater."""
+        if record.levelno >= 30:
+            org_stream = self.stream
+            self.stream = sys.stderr
+            try:
+                super(CusstomStreamHandler, self).emit(record)
+            finally:
+                self.stream = org_stream
+        else:
+            super(CusstomStreamHandler, self).emit(record)
 
 
 class CustomFormatter(object):

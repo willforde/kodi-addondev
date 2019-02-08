@@ -105,6 +105,8 @@ class Tesseract(object):
     :type pipe: multiprocessing.Connection
     """
 
+    # TODO: Add support for xbmc.service plugins
+
     def __init__(self, addon, deps, cached, pipe=None):  # type: (Addon, List[str], LocalRepo, mp.connection) -> None
         self.data = KodiData()
         self.addons = cached
@@ -115,18 +117,23 @@ class Tesseract(object):
         # for faster list insertion
         sys.path.reverse()
 
-        # Process all dependencies and download any missing dependencies
-        for dep in map(cached.__getitem__, deps):
-            if dep.type == "xbmc.python.module":
-                path = os.path.join(dep.path, os.path.normpath(dep.library))
-                sys.path.append(path)
+        if "xbmc.python.module" in addon.extensions:
+            library = addon.extensions["xbmc.python.module"]["library"]
+            path = os.path.join(addon.path, os.path.normpath(library))
+            sys.path.append(path)
 
         # Add plugin addons to sys path as well
-        if addon.type == "xbmc.python.pluginsource" and addon.path not in sys.path:
-            sys.path.append(addon.path)
-        elif addon.type == "xbmc.python.module":
-            path = os.path.join(addon.path, os.path.normpath(addon.library))
-            sys.path.append(path)
+        if addon.entrypoint:
+            lib_path, _ = addon.entrypoint
+            if lib_path not in sys.path:
+                sys.path.append(lib_path)
+
+        # Process all dependencies and download any missing dependencies
+        for dep in map(cached.__getitem__, deps):
+            if "xbmc.python.module" in dep.extensions:
+                library = dep.extensions["xbmc.python.module"]["library"]
+                path = os.path.join(dep.path, os.path.normpath(library))
+                sys.path.append(path)
 
         # Reverse the path list again
         # to change it back to normal

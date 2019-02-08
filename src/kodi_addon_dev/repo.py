@@ -186,7 +186,7 @@ class LocalRepo(object):
     def request_addon(self, addon_id):  # type: (str) -> Addon
         """Return addon from local repo if available else download from remote repo."""
         try:
-            return self[addon_id]
+            return self[addon_id].preload()
         except KeyError:
             if self.repo and addon_id in self.repo:
                 addon = self.repo.download(addon_id)
