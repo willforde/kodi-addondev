@@ -2,6 +2,7 @@ from __future__ import print_function
 
 # Standard Library Imports
 from typing import Union, List, Tuple, Iterator, Any, NamedTuple
+from functools import partial
 import multiprocessing as mp
 from copy import deepcopy
 import binascii
@@ -42,8 +43,6 @@ except NameError:
 # The Processed Listitem Named tuple, Make listitems easier to work with
 Listitem = NamedTuple("Listitem", (("count", str), ("isfolder", bool), ("size_of_name", int), ("item", dict)))
 
-# TODO: Check youtube addon to see why it's now working
-
 
 def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
     try:
@@ -61,7 +60,7 @@ def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
                 addon, deps, cached, url = data
                 # Patch sys.argv to emulate what is expected
                 urllist = [url.scheme, url.netloc, url.path, "", ""]
-                sys.argv = (urlparse.urlunsplit(urllist), -1, "?{}".format(url.query))
+                sys.argv = (urlparse.urlunsplit(urllist), 1, "?{}".format(url.query))
 
                 try:
                     # Create tesseract to handle kodi module interactions
@@ -122,11 +121,11 @@ class PRunner(object):
                 self._process = process
             return process
 
-    def execute(self, url_parts):  # type: (urlparse.SplitResult) -> Union[KodiData, bool]
-        logger.info("Execution Addon: %s", url_parts.netloc)
+    def execute(self, url):  # type: (urlparse.SplitResult) -> Union[KodiData, bool]
+        logger.info("Execution Addon: id=%s path=%s query=%s", url.netloc, url.path, url.query)
         try:
             # Construct command and send to sub process for execution
-            command = ("execute", (self.addon, self.deps, self.cached, url_parts))
+            command = ("execute", (self.addon, self.deps, self.cached, url))
             process, pipe = self.process, self.pipe
             pipe.send(command)
 
@@ -310,9 +309,10 @@ class BaseDisplay(object):
 
         # Make a deepcopy of all item so not to messup the parent list
         for count, item in enumerate(map(deepcopy, items)):
-            isfolder = item.get("properties", {}).get("folder", "true") == "true"
+            prop = item.get("properties", {})
+            isfolder = prop["isplayable"] != "true" if "isplayable" in prop else prop.get("folder", "true") == "true"
             label = re.sub(r"\[[^\]]+?\]", "", item.pop("label", "UNKNOWN")).strip()
-            label = self.localize(label)
+            label = self._formatter(label)
             size_of_name.append(len(label))
             buffer = {"label": label}
 
@@ -330,33 +330,38 @@ class BaseDisplay(object):
                     # Parse the list of query parameters
                     if parts.query:
                         # Decode query string before parsing
-                        query = self.decode_path(parts.query)
+                        query = self._decode_path(parts.query)
                         query = urlparse.parse_qsl(query)
 
                         size_of_name.append(len(query[0]))
                         buffer["Params"] = dict(query)
                 else:
                     # Just show the path itself
-                    buffer["path"] = path
+                    buffer["url"] = path
                     count = "X"
 
             # Process the context menu items independently
             if "context" in item:
-                context = {self.localize(name): self.decode_path(command) for name, command in item.pop("context")}
+                context = {self._formatter(name): self._decode_path(command) for name, command in item.pop("context")}
                 size_of_name.extend(map(len, (name for name in context)))
                 buffer["context"] = context
 
+            # Strip out formating for selective data
+            if "info" in item and "plot" in item["info"]:
+                item["info"]["plot"] = self._formatter(item["info"]["plot"])
+            if "label2" in item:
+                item["label2"] = self._formatter(item["label2"])
+
             # Show all leftover items
             for key, value in item.items():
-                key = self.localize(key)
+                key = self._formatter(key)
                 size_of_name.append(len(key))
 
                 # Show the sub name and values
                 if isinstance(value, dict):
                     buffer[key] = sub = {}
                     for sname, svalue in value.items():
-                        sname = self.localize(sname)
-                        sub[sname] = self.localize(svalue) if isinstance(svalue, (bytes, type(u""))) else svalue
+                        sub[sname] = svalue
                         size_of_name.append(len(sname))
                 else:
                     # Just directly show the value
@@ -369,21 +374,66 @@ class BaseDisplay(object):
         # Return the full list of processed listitems
         return self.show(pro_items, current_path)
 
-    def localize(self, text):
-        def decode(match):
-            # Localize the localization string
-            strings = self.cached.request_addon("resource.language.en_gb").strings
-            string_id = int(match.group(1))
-
-            # Return the localized string if available else leave string untouched
-            return strings[string_id] if string_id in strings else match.group(0)
-
-        # Search & replace matching LOCALIZE strings
+    # noinspection PyTypeChecker
+    def _formatter(self, text):
+        """Convert kodi formating into real text"""
         text = ensure_native_str(text)
-        return re.sub(r"\$LOCALIZE\[(\d+)\]", decode, text)
+
+        # Search & replace localization strings
+        text = re.sub(r"\$LOCALIZE\[(\d+)\]", self._localize, text)
+        text = re.sub(r"\$ADDON\[(\S+?)\s(\d+)\]", self._localize_addon, text)
+        text = re.sub(r"\[COLOR\s\w+\](.+?)\[/COLOR\]", partial(self.formatter, "COLOR"), text)
+
+        # Common formatting
+        for common in ("I", "B", "UPPERCASE", "LOWERCASE", "CAPITALIZE", "LIGHT"):
+            text = re.sub(r"\[{0}\](.+?)\[/{0}\]".format(common), partial(self.formatter, common), text)
+
+        return text.replace("[CR]", "\n")
 
     @staticmethod
-    def decode_path(path):  # type: (str) -> str
+    def formatter(name, match):
+        """
+        Convert a kodi formating.
+
+        :param str name: The name of the formatting e.g. UPPERCASE, B, COLOR
+        :param match: A re.Match object with the matching text located at group(1), group(0) for the full text.
+
+        :returns: The formatted string
+        :rtype: str
+        """
+        # Strip out formating and reutrn text untouched
+        if name in ("B", "I", "LIGHT", "COLOR"):
+            return match.group(1)
+
+        elif name == "UPPERCASE":
+            return match.group(1).upper()
+        elif name == "LOWERCASE":
+            return match.group(1).lower()
+        elif name == "CAPITALIZE":
+            return match.group(1).capitalize()
+        else:
+            return match.group(0)
+
+    def _localize(self, match):
+        """$LOCALIZE[12345] - for specifying a localized string."""
+        string_id = int(match.group(1))
+        text = match.group(0)
+        return self.__localize(text, string_id, "resource.language.en_gb")
+
+    def _localize_addon(self, match):
+        """$ADDON[script.music.foobar 12345] - for specifying a string provided by an addon."""
+        text = match.group(0)
+        addon_id = match.group(1)
+        string_id = int(match.group(2))
+        return self.__localize(text, string_id, addon_id)
+
+    def __localize(self, text, string_id, addon_id):  # type: (str, int, str) -> str
+        """Return the localized string if available else leave string untouched"""
+        strings = self.cached.request_addon(addon_id).strings
+        return strings[string_id] if string_id in strings else text
+
+    @staticmethod
+    def _decode_path(path):  # type: (str) -> str
         def decode(match):
             key = match.group(1)  # First part of params
             value = match.group(2)  # Second part of params

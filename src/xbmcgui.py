@@ -477,11 +477,12 @@ class ListItem(dict):
         """
         self["content_lookup"] = enable
 
-    def setInfo(self, ctype, infoLabels):
+    # noinspection PyShadowingBuiltins
+    def setInfo(self, type, infoLabels):
         """
         Sets the listitem's infoLabels.
 
-        :param str ctype: string - type of media(video/music/pictures).
+        :param str type: string - type of media(video/music/pictures).
         :param dict infoLabels: dictionary - pairs of { label: value }.
 
         .. note::
@@ -620,7 +621,7 @@ class ListItem(dict):
 
             self.list.getSelectedItem().setPath(path='ActivateWindow(Weather)')
         """
-        self["path"] = xbmc.ensure_unicode(path)
+        self["path"] = xbmc.ensure_native_str(path)
 
     def getPath(self):
         """

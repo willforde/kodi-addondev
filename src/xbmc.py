@@ -397,7 +397,7 @@ def getInfoLabel(cLine):
 
         label = xbmc.getInfoLabel('Weather.Conditions')
     """
-    raise NotImplementedError
+    return str()
 
 
 # noinspection PyPep8Naming

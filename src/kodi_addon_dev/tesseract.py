@@ -105,7 +105,7 @@ class Tesseract(object):
     :type pipe: multiprocessing.Connection
     """
 
-    # TODO: Add support for xbmc.service plugins
+    # TODO: Add support for 'xbmc.service' plugins
 
     def __init__(self, addon, deps, cached, pipe=None):  # type: (Addon, List[str], LocalRepo, mp.connection) -> None
         self.data = KodiData()

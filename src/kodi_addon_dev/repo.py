@@ -206,7 +206,7 @@ class LocalRepo(object):
                 path = os.path.join(addons_dir, filename, "addon.xml")
                 if os.path.exists(path):
                     addon = Addon.from_file(path)
-                    logger.debug("Found Addon: %s", os.path.join(addons_dir, filename))
+                    logger.debug("Addon: %s v%s", os.path.join(addons_dir, filename), addon.version)
                     yield addon.id, addon
 
     def _process_dependencies(self, dependencies):  # type: (List[Dependency]) -> Iterator[str]
