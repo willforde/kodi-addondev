@@ -7,6 +7,18 @@ import os
 PY3 = sys.version_info >= (3, 0)
 unicode_type = type(u"")
 
+if PY3:
+    real_input = input
+    import urllib.parse as urlparse
+else:
+    # noinspection PyUnresolvedReferences
+    real_input = raw_input
+    # noinspection PyUnresolvedReferences
+    import urlparse
+
+
+__all__ = ["urlparse", "real_input", "ensure_native_str"]
+
 
 class CacheProperty(object):
     """
