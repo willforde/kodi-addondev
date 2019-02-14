@@ -50,10 +50,19 @@ run_group.add_argument("-r", "--remote-repos", metavar="url", nargs="+", action=
 run_group.add_argument("-o", "--local-repos", metavar="path", nargs="+", action=RealPathList, default=[],
                        help="List of directorys where kodi addons are stored, separated by a space.")
 
+create_group = parser.add_argument_group(
+    title="Addon Creation",
+    description="Arguments related to creating a kodi addon template."
+)
 
-def main():
-    # Parse the cli arguments
-    cmdargs = parser.parse_args()
+create_group.add_argument("--create", action="store_true",
+                          help="Create a kodi addon at the given addon path.")
+
+
+def interactive_mode(cmdargs):  # type: (argparse.Namespace) -> None
+    """Run a Kodi addon interactively."""
+
+    # Enable terminal window logging output
     if cmdargs.log:
         base_handler = utils.CusstomStreamHandler()
         base_handler.setFormatter(utils.CustomFormatter())
@@ -80,7 +89,19 @@ def main():
     logging.shutdown()
 
 
+def create_mode(cmdargs):
+    pass
+
+
 # This is only here for development
 # Allows this script to be call directly
 if __name__ == "__main__":
-    main()
+    # Parse the cli arguments
+    args = parser.parse_args()
+
+    if args.create:
+        # Create Addon
+        create_mode(args)
+    else:
+        # Run Addon Interactively
+        interactive_mode(args)

@@ -1,5 +1,5 @@
 # Standard Library Imports
-from typing import Union, List, Tuple, Type
+from typing import Union, List, Tuple, Type, Callable
 import multiprocessing as mp
 from copy import deepcopy
 import argparse
@@ -11,7 +11,7 @@ from kodi_addon_dev import displays
 from kodi_addon_dev.repo import LocalRepo
 from kodi_addon_dev.support import Addon, logger
 from kodi_addon_dev.tesseract import Tesseract, KodiData
-from kodi_addon_dev.utils import urlparse, real_input
+from kodi_addon_dev.utils import urlparse
 import xbmcgui
 import xbmc
 
@@ -66,9 +66,10 @@ def subprocess(pipe, reuse):  # type: (mp.connection, bool) -> None
 
 
 class PRunner(object):
-    def __init__(self, cached, addon):  # type: (LocalRepo, Addon) -> None
+    def __init__(self, cached, addon, user_input):  # type: (LocalRepo, Addon, Callable) -> None
         self.deps = cached.load_dependencies(addon)
         self.reuse = addon.reuse_lang_invoker
+        self.user_input = user_input
         self.cached = cached
         self.addon = addon
 
@@ -115,12 +116,8 @@ class PRunner(object):
                 if status == "prompt":
                     # Prompt the user for input and
                     # send it back to the subprocess
-                    try:
-                        input_data = real_input(data)
-                    except KeyboardInterrupt:
-                        pipe.send("")
-                    else:
-                        pipe.send(input_data)
+                    input_data = self.user_input(data)
+                    pipe.send(input_data)
 
                 else:
                     # Check if execution failed before returning
@@ -142,12 +139,13 @@ class PRunner(object):
 
 
 class PManager(dict):
-    def __init__(self, cached):  # type: (LocalRepo) -> None
+    def __init__(self, cached, user_input):  # type: (LocalRepo, Callable) -> None
         super(PManager, self).__init__()
+        self.user_input = user_input
         self.cached = cached
 
     def __missing__(self, addon):  # type: (Addon) -> PRunner
-        self[addon] = runner = PRunner(self.cached, addon)
+        self[addon] = runner = PRunner(self.cached, addon, self.user_input)
         return runner
 
     def close(self):
@@ -166,11 +164,11 @@ class Interact(object):
 
         # Use custom display object if one is given, else
         # Use the pretty terminal display if possible, otherwise use the basic non tty display
-        display = display if display else displays.TMDisplay if sys.stdout.isatty() else displays.CMDisplay
+        display = display if display else displays.CMDisplay
         self.display = display(cached, cmdargs)
 
         # The process manager
-        self.pm = PManager(cached)
+        self.pm = PManager(cached, self.display.input)
 
         # Reverse the list of preselection for faster access
         self.preselect = list(map(int, cmdargs.preselect))
@@ -179,7 +177,7 @@ class Interact(object):
         # Log the arguments pass to program
         logger.debug("Command-Line Arguments: %s", vars(cmdargs))
 
-    def start(self, request):  # type: (urlparse.SplitResult) -> None
+    def start(self, request):  # type: (Union[KodiData, urlparse.SplitResult]) -> None
         try:
             while request:
                 if isinstance(request, urlparse.SplitResult):

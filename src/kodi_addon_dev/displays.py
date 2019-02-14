@@ -1,7 +1,7 @@
 from __future__ import print_function
 
 # Standard Library Imports
-from typing import Union, List, Iterator, Any, NamedTuple, NoReturn
+from typing import List, Iterator, NamedTuple, NoReturn
 from functools import partial
 from copy import deepcopy
 import binascii
@@ -24,9 +24,9 @@ except ImportError:
     from backports.shutil_get_terminal_size import get_terminal_size
 
 # The Processed Listitem Named tuple, Make listitems easier to work with
-Listitem = NamedTuple("Listitem", (("count", str), ("isfolder", bool), ("size_of_name", int), ("item", dict)))
+Listitem = NamedTuple("Listitem", (("count", int), ("isfolder", bool), ("size_of_name", int), ("item", dict)))
 
-__all__ = ["BaseDisplay", "CMDisplay", "TMDisplay"]
+__all__ = ["BaseDisplay", "CMDisplay"]
 
 
 class BaseDisplay(object):
@@ -38,11 +38,15 @@ class BaseDisplay(object):
         self.cached = cached
 
     @abc.abstractmethod
+    def input(self, msg):  # type: (str) -> str
+        pass
+
+    @abc.abstractmethod
     def notify(self, *msg, **kwargs):
         pass
 
     @abc.abstractmethod
-    def show(self, items, current_path):
+    def show(self, items, current_path):  # type: (List[Listitem], str) -> Listitem
         pass
 
     def show_raw(self, items, current_path):  # type: (List[xbmcgui.ListItem], str) -> int
@@ -59,28 +63,26 @@ class BaseDisplay(object):
             buffer = {"label": label}
 
             # Process the path independently
-            if "path" in item:
-                path = item.pop("path")
-                if path.startswith("plugin://"):
-                    buffer["url"] = sub = {}
+            path = item.pop("path")
+            if path.startswith("plugin://"):
+                buffer["url"] = sub = {}
 
-                    # Show the base url components
-                    parts = urlparse.urlsplit(path)
-                    sub["id"] = parts.netloc
-                    sub["path"] = parts.path if parts.path else "/"
+                # Show the base url components
+                parts = urlparse.urlsplit(path)
+                sub["id"] = parts.netloc
+                sub["path"] = parts.path if parts.path else "/"
 
-                    # Parse the list of query parameters
-                    if parts.query:
-                        # Decode query string before parsing
-                        query = self._decode_path(parts.query)
-                        query = urlparse.parse_qsl(query)
+                # Parse the list of query parameters
+                if parts.query:
+                    # Decode query string before parsing
+                    query = self._decode_path(parts.query)
+                    query = urlparse.parse_qsl(query)
 
-                        size_of_name.append(len(query[0]))
-                        buffer["Params"] = dict(query)
-                else:
-                    # Just show the path itself
-                    buffer["url"] = path
-                    count = "X"
+                    size_of_name.append(len(query[0]))
+                    buffer["Params"] = dict(query)
+            else:
+                # Just show the path itself
+                buffer["url"] = path
 
             # Process the context menu items independently
             if "context" in item:
@@ -110,11 +112,12 @@ class BaseDisplay(object):
                     buffer["key"] = value
 
             # Return the buffer and max length of the title column
-            listitem = Listitem(str(count), isfolder, max(size_of_name) + 1, buffer)
+            listitem = Listitem(count, isfolder, max(size_of_name) + 1, buffer)
             pro_items.append(listitem)
 
-        # Return the full list of processed listitems
-        return self.show(pro_items, current_path)
+        # Show the list to user and return the id of the selected item
+        selected_item = self.show(pro_items, current_path)
+        return selected_item.count
 
     # noinspection PyTypeChecker
     def _formatter(self, text):
@@ -203,9 +206,17 @@ class BaseDisplay(object):
 
 class CMDisplay(BaseDisplay):
     """Display manager that will display kodi listitem in a basic non tty terminal window."""
+
     def __init__(self, cached, settings):  # type: (LocalRepo, argparse.Namespace) -> NoReturn
         super(CMDisplay, self).__init__(cached, settings)
         self.default_terminal_size = 80
+
+    def input(self, msg):  # type: (str) -> str
+        """Ask for user input."""
+        try:
+            return real_input(msg)
+        except KeyboardInterrupt:
+            return ""
 
     @staticmethod
     def notify(*msg, **kwargs):
@@ -228,7 +239,7 @@ class CMDisplay(BaseDisplay):
         else:
             return False
 
-    def show(self, items, current_path):  # type: (List[Listitem], str) -> int
+    def show(self, items, current_path):  # type: (List[Listitem], str) -> Listitem
         """Show a list of all the avilable listitems and allow user to make there selection."""
         # Process all listitems into a Tuple of [count, isfolder, len label, listitem]
         lines = self._detailed_view(items) if self.settings.detailed else self._compact_view(items)
@@ -242,10 +253,10 @@ class CMDisplay(BaseDisplay):
         print("\n".join(output))
 
         # Return the full list of listitems
-        return self._user_choice(len(items))
+        return self._user_choice(items)
 
     @staticmethod
-    def _compact_view(items):  # type: (Any) -> Iterator[str]
+    def _compact_view(items):  # type: (List[Listitem]) -> Iterator[str]
         """Display listitems in a compact view, one line per listitem."""
 
         # Calculate the max length of required lines
@@ -256,10 +267,10 @@ class CMDisplay(BaseDisplay):
         # Create a line output for each listitem entry
         for count, isfolder, _, item in items:
             # Folder/Video icon, + for Folder, - for Video
-            label = ("{}. + {}" if isfolder else "{}. - {}").format(count.rjust(num_len), item.pop("label"))
+            label = ("{}. + {}" if isfolder else "{}. - {}").format(str(count).rjust(num_len), item.pop("label"))
             yield "{} Listitem({})".format(label.ljust(title_len), item)
 
-    def _detailed_view(self, items):  # type: (Any) -> Iterator[str]
+    def _detailed_view(self, items):  # type: (List[Listitem]) -> Iterator[str]
         """Display listitems in a detailed view, each component of a listitem will be on it's own line."""
         terminal_width = self._terminal_width
 
@@ -281,14 +292,14 @@ class CMDisplay(BaseDisplay):
             yield ""
 
     @staticmethod
-    def _user_choice(valid_range):  # type: (int) -> Union[int, None]
+    def _user_choice(items):  # type: (List[Listitem]) -> Listitem
         """Ask user to select an item, returning selection as an integer."""
         while True:
             try:
                 # Ask user for selection, Returning None if user entered nothing
                 choice = real_input("Choose an item: ")
             except KeyboardInterrupt:
-                return None
+                break
 
             if choice:
                 try:
@@ -297,14 +308,12 @@ class CMDisplay(BaseDisplay):
                 except ValueError:
                     print("You entered a non-numerical value, Plean enter a numerical value or leave black to exit.")
                 else:
-                    # Check if choice is within the valid range
-                    if choice <= valid_range:
-                        print("")
-                        return choice
-                    else:
+                    try:
+                        return items[choice]
+                    except IndexError:
                         print("Choise is out of range, Please choose from above list.")
             else:
-                return None
+                break
 
     @property
     def _terminal_width(self):
@@ -315,13 +324,3 @@ class CMDisplay(BaseDisplay):
         """Limit the length of a output line to fit within the terminal window."""
         terminal_width = self._terminal_width
         return "%s..." % (line[:terminal_width-3]) if len(line) > terminal_width else line
-
-
-class TMDisplay(BaseDisplay):
-    """Display manager that will display kodi listitem in a pretty tty terminal window."""
-
-    def notify(self, *msg, **kwargs):
-        pass
-
-    def show(self, items, current_path):
-        pass
