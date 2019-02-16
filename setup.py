@@ -75,6 +75,10 @@ def required_versions(vers):
 
 def readme(name="README.rst"):
     """Return the Readme text."""
+
+    if name.endswith(".md"):
+        setup["long_description_content_type"] = "text/markdown"
+
     with open(name, "r", encoding="utf-8") as stream:
         return stream.read()
 
@@ -84,7 +88,7 @@ setup.update(
     version="0.0.13",
     name="kodi-addon-dev",
     description="Mock Kodi environment for development and testing of Kodi add-on's",
-    long_description=readme(),
+    long_description=readme("README.md"),
     keywords="kodi plugin addon cli",
     author="William Forde",
     author_email="willforde@gmail.com",

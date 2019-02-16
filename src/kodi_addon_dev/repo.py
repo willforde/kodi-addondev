@@ -19,7 +19,7 @@ from kodi_addon_dev.support import Addon, Dependency, logger, CACHE_DIR
 if not utils.PY3:
     from codecs import open
 
-PACKAGE_DIR = os.path.join("packages", CACHE_DIR)
+PACKAGE_DIR = os.path.join(CACHE_DIR, "packages")
 REPOS = ["http://mirrors.kodi.tv/addons/krypton"]
 MAX_AGE = 432000
 
@@ -162,6 +162,11 @@ class LocalRepo(object):
 
     def __init__(self, local_repos, remote_repos, addon=None):  # type: (List, List, Addon) -> None
         """Retrun List of already download addons."""
+        # Ensure that the cache directory exists
+        if not os.path.exists(PACKAGE_DIR):
+            os.makedirs(PACKAGE_DIR)
+
+        # Search for all cached addon
         build_in = os.path.join(os.path.dirname(__file__), "data")
         self.cached = dict(self._find_addons(CACHE_DIR))
         self.local = dict(self._find_addons(build_in, *local_repos))
@@ -202,12 +207,13 @@ class LocalRepo(object):
         Returning a tuple consisting of addon id and Addon object.
         """
         for addons_dir in paths:
-            for filename in os.listdir(addons_dir):
-                path = os.path.join(addons_dir, filename, "addon.xml")
-                if os.path.exists(path):
-                    addon = Addon.from_file(path)
-                    logger.debug("Addon: %s v%s", os.path.join(addons_dir, filename), addon.version)
-                    yield addon.id, addon
+            if os.path.exists(addons_dir):
+                for filename in os.listdir(addons_dir):
+                    path = os.path.join(addons_dir, filename, "addon.xml")
+                    if os.path.exists(path):
+                        addon = Addon.from_file(path)
+                        logger.debug("Addon: %s v%s", os.path.join(addons_dir, filename), addon.version)
+                        yield addon.id, addon
 
     def _process_dependencies(self, dependencies):  # type: (List[Dependency]) -> Iterator[str]
         """
